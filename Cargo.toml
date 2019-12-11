@@ -4,14 +4,13 @@ version = "0.1.0"
 authors = ["Nuutti Kotivuori <naked@iki.fi>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-openssl = { version = "0.10", features = ["vendored"] }
 libc = "*"
 rusoto_core = "*"
 rusoto_kms = "*"
 lazy_static = "*"
+# include openssl as vendored because dynamically linking inside an engine does not work
+openssl = { version = "0.10", features = ["vendored"] }
 
 [lib]
 name = "openssl_engine_kms"
