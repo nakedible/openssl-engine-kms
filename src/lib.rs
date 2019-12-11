@@ -5,13 +5,14 @@ use rusoto_kms::{Kms, KmsClient};
 #[macro_use]
 extern crate lazy_static;
 
+// OpenSSL header definitions
 const OSSL_DYNAMIC_OLDEST : libc::c_ulong = 0x00030000;
 
 type ENGINE = *mut libc::c_void;
 type RSA_METHOD = *mut libc::c_void;
 
-#[repr(C)]
 #[allow(non_snake_case)]
+#[repr(C)]
 pub struct dynamic_fns {
   static_state: *mut libc::c_void,
   dyn_MEM_malloc_fn: *mut libc::c_void,
@@ -20,7 +21,6 @@ pub struct dynamic_fns {
 }
 
 #[repr(C)]
-#[derive(Debug)]
 pub struct rand_meth_st {
   seed: Option<extern fn(*mut libc::c_void, libc::c_int) -> libc::c_int>,
   bytes: Option<extern fn(*mut libc::c_uchar, libc::c_int) -> libc::c_int>, 
@@ -47,6 +47,10 @@ extern {
   fn RSA_meth_set_finish(meth: RSA_METHOD) -> libc::c_int;
 }
 
+// Static globals
+const ENGINE_ID : &str = "kms\0";
+const ENGINE_NAME : &str = "AWS KMS based engine\0";
+
 static RAND_METH : rand_meth_st = rand_meth_st {
   seed: None,
   bytes: Some(rand_bytes),
@@ -60,6 +64,7 @@ lazy_static! {
   static ref KMS_CLIENT : KmsClient = KmsClient::new(Region::EuWest1);
 }
 
+// implementation functions
 extern fn kms_init(e: ENGINE) -> libc::c_int {
   println!("kms_init");
   return 1;
@@ -100,8 +105,8 @@ pub extern fn bind_engine(e: ENGINE, _id: *const libc::c_char, fns: *const dynam
     if ENGINE_get_static_state() != (*fns).static_state {
       assert_eq!(CRYPTO_set_mem_functions((*fns).dyn_MEM_malloc_fn, (*fns).dyn_MEM_realloc_fn, (*fns).dyn_MEM_free_fn), 1); 
     }
-    assert_eq!(ENGINE_set_id(e, "kms\0".as_ptr()), 1);
-    assert_eq!(ENGINE_set_name(e, "AWS KMS based engine\0".as_ptr()), 1);
+    assert_eq!(ENGINE_set_id(e, ENGINE_ID.as_ptr()), 1);
+    assert_eq!(ENGINE_set_name(e, ENGINE_NAME.as_ptr()), 1);
     assert_eq!(ENGINE_set_init_function(e, kms_init), 1);
     /*
     let ops = RSA_meth_dup(RSA_get_default_method());
