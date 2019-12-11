@@ -7,19 +7,6 @@ extern crate lazy_static;
 
 const OSSL_DYNAMIC_OLDEST : libc::c_ulong = 0x00030000;
 
-const ENGINE_METHOD_DSA               : libc::c_uint = 0x0002;
-const ENGINE_METHOD_RSA               : libc::c_uint = 0x0001;
-const ENGINE_METHOD_DH                : libc::c_uint = 0x0004;
-const ENGINE_METHOD_RAND              : libc::c_uint = 0x0008;
-const ENGINE_METHOD_CIPHERS           : libc::c_uint = 0x0040;
-const ENGINE_METHOD_DIGESTS           : libc::c_uint = 0x0080;
-const ENGINE_METHOD_PKEY_METHS        : libc::c_uint = 0x0200;
-const ENGINE_METHOD_PKEY_ASN1_METHS   : libc::c_uint = 0x0400;
-const ENGINE_METHOD_EC                : libc::c_uint = 0x0800;
-const ENGINE_METHOD_ALL               : libc::c_uint = 0xFFFF;
-const ENGINE_METHOD_NONE              : libc::c_uint = 0x0000;
-
-
 type ENGINE = *mut libc::c_void;
 type RSA_METHOD = *mut libc::c_void;
 
@@ -51,8 +38,6 @@ extern {
   fn ENGINE_set_init_function(e: ENGINE, init_f: extern fn(ENGINE) -> libc::c_int) -> libc::c_int;
   fn ENGINE_set_RSA(e: ENGINE, rsa: RSA_METHOD) -> libc::c_int;
   fn ENGINE_set_RAND(e: ENGINE, rand_meth: *const rand_meth_st) -> libc::c_int;
-  fn ENGINE_set_default(e: ENGINE, flags: libc::c_uint) -> libc::c_int;
-  fn ENGINE_set_default_RAND(e: ENGINE) -> libc::c_int;
   fn RSA_get_default_method() -> RSA_METHOD;
   fn RSA_meth_dup(meth: RSA_METHOD) -> RSA_METHOD;
   fn RSA_meth_set1_name(meth: RSA_METHOD, name: *const libc::c_uchar) -> libc::c_int;
@@ -124,8 +109,6 @@ pub extern fn bind_engine(e: ENGINE, _id: *const libc::c_char, fns: *const dynam
     ENGINE_set_RSA(e, ops);
     */
     assert_eq!(ENGINE_set_RAND(e, &RAND_METH), 1);
-    assert_eq!(ENGINE_set_default(e, ENGINE_METHOD_RAND), 1);
-    //assert_eq!(ENGINE_set_default_RAND(e), 1);
   }
   return 1;
 }
