@@ -1,4 +1,5 @@
 extern crate libc;
+use libc::{c_void, c_char, c_uchar, c_int, c_uint, c_long, c_ulong, c_double};
 use rusoto_core::Region;
 use rusoto_kms::{Kms, KmsClient};
 
@@ -6,56 +7,56 @@ use rusoto_kms::{Kms, KmsClient};
 extern crate lazy_static;
 
 // OpenSSL header definitions
-const OSSL_DYNAMIC_OLDEST : libc::c_ulong = 0x00030000;
+const OSSL_DYNAMIC_OLDEST : c_ulong = 0x00030000;
 
-const RSA_FLAG_EXT_PKEY : libc::c_int = 0x0020;
+const RSA_FLAG_EXT_PKEY : c_int = 0x0020;
 
-const EVP_PKEY_RSA : libc::c_int = 6;
+const EVP_PKEY_RSA : c_int = 6;
 
-type ENGINE = *mut libc::c_void;
-type RSA_METHOD = *mut libc::c_void;
-type EVP_PKEY = *mut libc::c_void;
-type RSA = *mut libc::c_void;
+type ENGINE = *mut c_void;
+type RSA_METHOD = *mut c_void;
+type EVP_PKEY = *mut c_void;
+type RSA = *mut c_void;
 
 #[allow(non_snake_case)]
 #[repr(C)]
 pub struct dynamic_fns {
-  static_state: *mut libc::c_void,
-  dyn_MEM_malloc_fn: *mut libc::c_void,
-  dyn_MEM_realloc_fn: *mut libc::c_void,
-  dyn_MEM_free_fn: *mut libc::c_void,
+  static_state: *mut c_void,
+  dyn_MEM_malloc_fn: *mut c_void,
+  dyn_MEM_realloc_fn: *mut c_void,
+  dyn_MEM_free_fn: *mut c_void,
 }
 
 #[repr(C)]
 pub struct rand_meth_st {
-  seed: Option<extern fn(*mut libc::c_void, libc::c_int) -> libc::c_int>,
-  bytes: Option<extern fn(*mut libc::c_uchar, libc::c_int) -> libc::c_int>, 
+  seed: Option<extern fn(*mut c_void, c_int) -> c_int>,
+  bytes: Option<extern fn(*mut c_uchar, c_int) -> c_int>, 
   cleanup: Option<extern fn()>,
-  add: Option<extern fn(*mut libc::c_void, libc::c_int, libc::c_double) -> libc::c_int>,
-  pseudorand: Option<extern fn(*mut libc::c_uchar, libc::c_int) -> libc::c_int>, 
-  status: Option<extern fn() -> libc::c_int>
+  add: Option<extern fn(*mut c_void, c_int, c_double) -> c_int>,
+  pseudorand: Option<extern fn(*mut c_uchar, c_int) -> c_int>, 
+  status: Option<extern fn() -> c_int>
 }
 
 extern {
-  fn ENGINE_get_static_state() -> *mut libc::c_void;
-  fn CRYPTO_set_mem_functions(m: *mut libc::c_void, r: *mut libc::c_void, f: *mut libc::c_void) -> libc::c_int;
-  fn ENGINE_set_id(e: ENGINE, id: *const libc::c_uchar) -> libc::c_int;
-  fn ENGINE_set_name(e: ENGINE, id: *const libc::c_uchar) -> libc::c_int;
-  fn ENGINE_set_init_function(e: ENGINE, init_f: extern fn(ENGINE) -> libc::c_int) -> libc::c_int;
-  fn ENGINE_set_RSA(e: ENGINE, rsa: RSA_METHOD) -> libc::c_int;
-  fn ENGINE_set_RAND(e: ENGINE, rand_meth: *const rand_meth_st) -> libc::c_int;
-  fn ENGINE_set_load_privkey_function(e: ENGINE, loadpriv_f: extern fn(ENGINE, *const libc::c_char, *mut libc::c_void, *mut libc::c_void) -> EVP_PKEY) -> libc::c_int;
+  fn ENGINE_get_static_state() -> *mut c_void;
+  fn CRYPTO_set_mem_functions(m: *mut c_void, r: *mut c_void, f: *mut c_void) -> c_int;
+  fn ENGINE_set_id(e: ENGINE, id: *const c_uchar) -> c_int;
+  fn ENGINE_set_name(e: ENGINE, id: *const c_uchar) -> c_int;
+  fn ENGINE_set_init_function(e: ENGINE, init_f: extern fn(ENGINE) -> c_int) -> c_int;
+  fn ENGINE_set_RSA(e: ENGINE, rsa: RSA_METHOD) -> c_int;
+  fn ENGINE_set_RAND(e: ENGINE, rand_meth: *const rand_meth_st) -> c_int;
+  fn ENGINE_set_load_privkey_function(e: ENGINE, loadpriv_f: extern fn(ENGINE, *const c_char, *mut c_void, *mut c_void) -> EVP_PKEY) -> c_int;
   fn RSA_get_default_method() -> RSA_METHOD;
   fn RSA_meth_dup(meth: RSA_METHOD) -> RSA_METHOD;
-  fn RSA_meth_set1_name(meth: RSA_METHOD, name: *const libc::c_uchar) -> libc::c_int;
-  fn RSA_meth_set_flags(meth: RSA_METHOD, flags: libc::c_int) -> libc::c_int;
-  fn RSA_meth_set_priv_enc(meth: RSA_METHOD) -> libc::c_int;
-  fn RSA_meth_set_priv_dec(meth: RSA_METHOD) -> libc::c_int;
-  fn RSA_meth_set_finish(meth: RSA_METHOD) -> libc::c_int;
+  fn RSA_meth_set1_name(meth: RSA_METHOD, name: *const c_uchar) -> c_int;
+  fn RSA_meth_set_flags(meth: RSA_METHOD, flags: c_int) -> c_int;
+  fn RSA_meth_set_priv_enc(meth: RSA_METHOD) -> c_int;
+  fn RSA_meth_set_priv_dec(meth: RSA_METHOD) -> c_int;
+  fn RSA_meth_set_finish(meth: RSA_METHOD) -> c_int;
   fn RSA_new() -> RSA;
   fn EVP_PKEY_new() -> EVP_PKEY;
-  fn EVP_PKEY_assign(pkey: EVP_PKEY, libc::c_int type, rsa: RSA) -> libc::c_int;
-  fn EVP_PKEY_set1_engine(pkey: EVP_PKEY, e: ENGINE) -> libc::c_int;
+  fn EVP_PKEY_assign(pkey: EVP_PKEY, pkey_type: c_int, rsa: RSA) -> c_int;
+  fn EVP_PKEY_set1_engine(pkey: EVP_PKEY, e: ENGINE) -> c_int;
 }
 
 // Static globals
@@ -76,12 +77,12 @@ lazy_static! {
 }
 
 // implementation functions
-extern fn kms_init(e: ENGINE) -> libc::c_int {
+extern fn kms_init(e: ENGINE) -> c_int {
   println!("kms_init");
   return 1;
 }
 
-extern fn rand_bytes(buf: *mut libc::c_uchar, num: libc::c_int) -> libc::c_int {
+extern fn rand_bytes(buf: *mut c_uchar, num: c_int) -> c_int {
   let req = rusoto_kms::GenerateRandomRequest {
     custom_key_store_id: None,
     number_of_bytes: Some(num.into())
@@ -95,11 +96,11 @@ extern fn rand_bytes(buf: *mut libc::c_uchar, num: libc::c_int) -> libc::c_int {
   return 1;
 }
 
-extern fn rand_status() -> libc::c_int {
+extern fn rand_status() -> c_int {
   return 1;
 }
 
-extern fn load_privkey(e: ENGINE, key_id: *const libc::c_char, ui_method: *mut libc::c_void, callback_data: *mut libc::c_void) -> EVP_PKEY {
+extern fn load_privkey(e: ENGINE, key_id: *const c_char, ui_method: *mut c_void, callback_data: *mut c_void) -> EVP_PKEY {
   println!("load_privkey");
   unsafe {
     let key = EVP_PKEY_new();
@@ -116,7 +117,7 @@ extern fn load_privkey(e: ENGINE, key_id: *const libc::c_char, ui_method: *mut l
 
 // openssl engine entry points
 #[no_mangle]
-pub extern fn v_check(v: libc::c_ulong) -> libc::c_ulong {
+pub extern fn v_check(v: c_ulong) -> c_ulong {
   //println!("v_check {}", v);
   if v >= OSSL_DYNAMIC_OLDEST {
     return OSSL_DYNAMIC_OLDEST;
@@ -125,7 +126,7 @@ pub extern fn v_check(v: libc::c_ulong) -> libc::c_ulong {
 }
 
 #[no_mangle]
-pub extern fn bind_engine(e: ENGINE, _id: *const libc::c_char, fns: *const dynamic_fns) -> libc::c_int {
+pub extern fn bind_engine(e: ENGINE, _id: *const c_char, fns: *const dynamic_fns) -> c_int {
   //println!("bind_engine");
   unsafe {
     if ENGINE_get_static_state() != (*fns).static_state {
