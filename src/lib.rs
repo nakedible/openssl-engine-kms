@@ -10,9 +10,12 @@ const OSSL_DYNAMIC_OLDEST : libc::c_ulong = 0x00030000;
 
 const RSA_FLAG_EXT_PKEY : libc::c_int = 0x0020;
 
+const EVP_PKEY_RSA : libc::c_int = 6;
+
 type ENGINE = *mut libc::c_void;
 type RSA_METHOD = *mut libc::c_void;
 type EVP_PKEY = *mut libc::c_void;
+type RSA = *mut libc::c_void;
 
 #[allow(non_snake_case)]
 #[repr(C)]
@@ -49,7 +52,10 @@ extern {
   fn RSA_meth_set_priv_enc(meth: RSA_METHOD) -> libc::c_int;
   fn RSA_meth_set_priv_dec(meth: RSA_METHOD) -> libc::c_int;
   fn RSA_meth_set_finish(meth: RSA_METHOD) -> libc::c_int;
+  fn RSA_new() -> RSA;
   fn EVP_PKEY_new() -> EVP_PKEY;
+  fn EVP_PKEY_assign(pkey: EVP_PKEY, libc::c_int type, rsa: RSA) -> libc::c_int;
+  fn EVP_PKEY_set1_engine(pkey: EVP_PKEY, e: ENGINE) -> libc::c_int;
 }
 
 // Static globals
@@ -97,6 +103,13 @@ extern fn load_privkey(e: ENGINE, key_id: *const libc::c_char, ui_method: *mut l
   println!("load_privkey");
   unsafe {
     let key = EVP_PKEY_new();
+    let rsa = RSA_new();
+    // RSA_set_method
+    assert_eq!(EVP_PKEY_assign(key, EVP_PKEY_RSA, rsa), 1);
+    // RSA_set_app_data
+    // RSA_set0_key
+    // RSA_set0_factors
+    // RSA_set0_crt_params
     return key;
   }
 }
