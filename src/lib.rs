@@ -120,9 +120,10 @@ extern fn load_privkey(e: ENGINE, key_id: *const c_char, ui_method: *mut c_void,
 pub extern fn v_check(v: c_ulong) -> c_ulong {
   //println!("v_check {}", v);
   if v >= OSSL_DYNAMIC_OLDEST {
-    return OSSL_DYNAMIC_OLDEST;
+    OSSL_DYNAMIC_OLDEST
+  } else {
+    0
   }
-  return 0;
 }
 
 #[no_mangle]
