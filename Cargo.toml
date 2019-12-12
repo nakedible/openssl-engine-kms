@@ -10,6 +10,7 @@ libc = "*"
 rusoto_core = { path = "../../public/rusoto/rusoto/core", default_features = false, features=["rustls"] }
 rusoto_kms = { path = "../../public/rusoto/rusoto/services/kms", default_features = false, features=["rustls"] }
 lazy_static = "*"
+bytes = "*"
 
 [lib]
 name = "openssl_engine_kms"

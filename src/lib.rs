@@ -2,6 +2,8 @@ extern crate libc;
 use libc::{c_void, c_char, c_uchar, c_int, c_uint, c_long, c_ulong, c_double};
 use rusoto_core::Region;
 use rusoto_kms::{Kms, KmsClient};
+use std::ptr;
+use bytes::Bytes;
 
 #[macro_use]
 extern crate lazy_static;
@@ -16,10 +18,18 @@ macro_rules! openssl_try {
     })
 }
 
+unsafe fn from_buf_raw<T>(ptr: *const T, elts: usize) -> Vec<T> {
+  let mut dst = Vec::with_capacity(elts);
+  dst.set_len(elts);
+  ptr::copy(ptr, dst.as_mut_ptr(), elts);
+  dst
+}
+
 // OpenSSL header definitions
 const OSSL_DYNAMIC_OLDEST : c_ulong = 0x00030000;
 
 const RSA_FLAG_EXT_PKEY : c_int = 0x0020;
+const RSA_FLAG_NO_BLINDING : c_int = 0x0080;
 
 const EVP_PKEY_RSA : c_int = 6;
 
@@ -125,11 +135,24 @@ extern fn rsa_priv_enc(flen: c_int, from: *const c_uchar, to: *mut c_uchar, rsa:
 
 extern fn rsa_priv_dec(flen: c_int, from: *const c_uchar, to: *mut c_uchar, rsa: RSA, padding: c_int) -> c_int {
   println!("priv dec");
+  let key_id = "arn:aws:kms:eu-west-1:378072147349:key/520ba1f2-94b4-4b86-acc6-546066d55f57".to_string();
+  let ciphertext = unsafe { from_buf_raw(from, flen as usize) };
+  let req = rusoto_kms::DecryptRequest {
+    ciphertext_blob: Bytes::from(ciphertext),
+    encryption_algorithm: Some("RSAES_OAEP_SHA_1".to_string()),
+    encryption_context: None,
+    grant_tokens: None,
+    key_id: Some(key_id)
+  };
+  let output = KMS_CLIENT.decrypt(req).sync().expect("kms decrypt failed");
+  let bytes = output.plaintext.expect("plaintext was not returned");
+  println!("decrypt bytes {:?}", bytes);
   unsafe {
+    to.copy_from(bytes.as_ptr(), bytes.len());
     let ptr = RSA_meth_get0_app_data(rsa);
     println!("ptr {:?}", ptr);
   }
-  return 0;
+  return bytes.len() as c_int;
 }
 
 extern fn load_privkey(e: ENGINE, key_id: *const c_char, ui_method: *mut c_void, callback_data: *mut c_void) -> EVP_PKEY {
@@ -180,7 +203,7 @@ pub extern fn bind_engine(e: ENGINE, _id: *const c_char, fns: *const dynamic_fns
     assert_eq!(ENGINE_set_init_function(e, kms_init), 1);
     let ops = RSA_meth_dup(RSA_get_default_method()); // check for null return
     assert_eq!(RSA_meth_set1_name(ops, "KMS RSA method\0".as_ptr()), 1);
-    assert_eq!(RSA_meth_set_flags(ops, RSA_FLAG_EXT_PKEY), 1);
+    assert_eq!(RSA_meth_set_flags(ops, RSA_FLAG_EXT_PKEY | RSA_FLAG_NO_BLINDING), 1);
     assert_eq!(RSA_meth_set_priv_enc(ops, rsa_priv_enc), 1);
     assert_eq!(RSA_meth_set_priv_dec(ops, rsa_priv_dec), 1);
     assert_eq!(ENGINE_set_RSA(e, ops), 1);
