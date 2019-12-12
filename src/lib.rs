@@ -8,8 +8,11 @@ extern crate lazy_static;
 // OpenSSL header definitions
 const OSSL_DYNAMIC_OLDEST : libc::c_ulong = 0x00030000;
 
+const RSA_FLAG_EXT_PKEY : libc::c_int = 0x0020;
+
 type ENGINE = *mut libc::c_void;
 type RSA_METHOD = *mut libc::c_void;
+type EVP_PKEY = *mut libc::c_void;
 
 #[allow(non_snake_case)]
 #[repr(C)]
@@ -38,6 +41,7 @@ extern {
   fn ENGINE_set_init_function(e: ENGINE, init_f: extern fn(ENGINE) -> libc::c_int) -> libc::c_int;
   fn ENGINE_set_RSA(e: ENGINE, rsa: RSA_METHOD) -> libc::c_int;
   fn ENGINE_set_RAND(e: ENGINE, rand_meth: *const rand_meth_st) -> libc::c_int;
+  fn ENGINE_set_load_privkey_function(e: ENGINE, loadpriv_f: extern fn(ENGINE, *const libc::c_char, *mut libc::c_void, *mut libc::c_void) -> EVP_PKEY) -> libc::c_int;
   fn RSA_get_default_method() -> RSA_METHOD;
   fn RSA_meth_dup(meth: RSA_METHOD) -> RSA_METHOD;
   fn RSA_meth_set1_name(meth: RSA_METHOD, name: *const libc::c_uchar) -> libc::c_int;
@@ -45,6 +49,7 @@ extern {
   fn RSA_meth_set_priv_enc(meth: RSA_METHOD) -> libc::c_int;
   fn RSA_meth_set_priv_dec(meth: RSA_METHOD) -> libc::c_int;
   fn RSA_meth_set_finish(meth: RSA_METHOD) -> libc::c_int;
+  fn EVP_PKEY_new() -> EVP_PKEY;
 }
 
 // Static globals
@@ -88,6 +93,14 @@ extern fn rand_status() -> libc::c_int {
   return 1;
 }
 
+extern fn load_privkey(e: ENGINE, key_id: *const libc::c_char, ui_method: *mut libc::c_void, callback_data: *mut libc::c_void) -> EVP_PKEY {
+  println!("load_privkey");
+  unsafe {
+    let key = EVP_PKEY_new();
+    return key;
+  }
+}
+
 // openssl engine entry points
 #[no_mangle]
 pub extern fn v_check(v: libc::c_ulong) -> libc::c_ulong {
@@ -108,12 +121,12 @@ pub extern fn bind_engine(e: ENGINE, _id: *const libc::c_char, fns: *const dynam
     assert_eq!(ENGINE_set_id(e, ENGINE_ID.as_ptr()), 1);
     assert_eq!(ENGINE_set_name(e, ENGINE_NAME.as_ptr()), 1);
     assert_eq!(ENGINE_set_init_function(e, kms_init), 1);
-    /*
-    let ops = RSA_meth_dup(RSA_get_default_method());
-    RSA_meth_set1_name(ops, "KMS RSA method\0".as_ptr());
-    ENGINE_set_RSA(e, ops);
-    */
+    let ops = RSA_meth_dup(RSA_get_default_method()); // check for null return
+    assert_eq!(RSA_meth_set1_name(ops, "KMS RSA method\0".as_ptr()), 1);
+    assert_eq!(RSA_meth_set_flags(ops, RSA_FLAG_EXT_PKEY), 1);
+    assert_eq!(ENGINE_set_RSA(e, ops), 1);
     assert_eq!(ENGINE_set_RAND(e, &RAND_METH), 1);
+    assert_eq!(ENGINE_set_load_privkey_function(e, load_privkey), 1);
   }
   return 1;
 }
