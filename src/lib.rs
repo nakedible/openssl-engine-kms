@@ -11,13 +11,17 @@ use bytes::Bytes;
 extern crate lazy_static;
 
 macro_rules! openssl_try {
-    ($e:expr) => ({
-        let ret = $e;
-        if ret != 1 {
-          println!("failed!");
-          return ret;
-        }
-    })
+  ($e:expr) => ({
+    openssl_try!($e, 0);
+  });
+  ($e:expr, $exp:expr) => ({
+    let ret = $e;
+    if ret == $exp {
+      println!("failed!"); // FIXME: get ssl error and print it
+      return 0;
+    }
+    ret
+  });
 }
 
 unsafe fn from_buf_raw<T>(ptr: *const T, elts: usize) -> Vec<T> {
@@ -229,7 +233,7 @@ pub extern fn bind_engine(e: ENGINE, _id: *const c_char, fns: *const dynamic_fns
     openssl_try!(ENGINE_set_id(e, ENGINE_ID.as_ptr()));
     openssl_try!(ENGINE_set_name(e, ENGINE_NAME.as_ptr()));
     openssl_try!(ENGINE_set_init_function(e, kms_init));
-    let ops = RSA_meth_dup(RSA_get_default_method()); // check for null return
+    let ops = openssl_try!(RSA_meth_dup(RSA_get_default_method()), ptr::null_mut());
     openssl_try!(RSA_meth_set1_name(ops, "KMS RSA method\0".as_ptr()));
     openssl_try!(RSA_meth_set_flags(ops, RSA_FLAG_EXT_PKEY | RSA_FLAG_NO_BLINDING));
     openssl_try!(RSA_meth_set_priv_enc(ops, rsa_priv_enc));
