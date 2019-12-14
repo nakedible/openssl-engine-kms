@@ -95,7 +95,6 @@ extern {
   fn EVP_PKEY_meth_find(typ: c_int) -> EVP_PKEY_METHOD;
   fn EVP_PKEY_meth_set_decrypt(pmeth: EVP_PKEY_METHOD, decrypt_init: extern fn(ctx: EVP_PKEY_CTX) -> c_int, decrypt: extern fn(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, in_: *const c_uchar, inlen: c_int) -> c_int);
   fn EVP_PKEY_CTX_get0_pkey(ctx: EVP_PKEY_CTX) -> EVP_PKEY;
-  //fn RSA_pkey_ctx_ctrl(ctx: EVP_PKEY_CTX, optype: c_int, cmd: c_int, p1: c_int, p2: *mut c_void) -> c_int;
   fn EVP_PKEY_CTX_ctrl(ctx: EVP_PKEY_CTX, keytype: c_int, optype: c_int, cmd: c_int, p1: c_int, p2: *mut c_void) -> c_int;
   fn EVP_MD_type(md: EVP_MD) -> c_int;
   fn BIO_new_mem_buf(buf: *const c_void, len: c_int) -> BIO;
@@ -169,13 +168,13 @@ extern fn rsa_decrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, 
   let keys = KEYS.lock().unwrap();
   let key_info = keys.get(&(rsa as usize)).expect("could not find key info");
   let key_id = &key_info.key_id;
-  let mut padding : c_int = 0;
-  let mut md : EVP_MD = ptr::null_mut();
   let alg;
   unsafe {
-    openssl_try!(EVP_PKEY_CTX_ctrl(ctx, -1, -1, EVP_PKEY_CTRL_GET_RSA_PADDING, 0, &mut padding as *mut _ as *mut c_void));
+    let mut padding : c_int = 0;
+    let mut md : EVP_MD = ptr::null_mut();
+      openssl_try!(EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA, EVP_PKEY_OP_DECRYPT, EVP_PKEY_CTRL_GET_RSA_PADDING, 0, &mut padding as *mut _ as *mut c_void));
     if padding != RSA_PKCS1_OAEP_PADDING { panic!("not oaep"); }
-    openssl_try!(EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA, EVP_PKEY_OP_TYPE_CRYPT, EVP_PKEY_CTRL_GET_RSA_OAEP_MD, 0, &mut md as *mut _ as *mut c_void));
+    openssl_try!(EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA, EVP_PKEY_OP_DECRYPT, EVP_PKEY_CTRL_GET_RSA_OAEP_MD, 0, &mut md as *mut _ as *mut c_void));
     let md_type = EVP_MD_type(md);
     if md_type == NID_sha1 {
       alg = Some("RSAES_OAEP_SHA_1".to_string());
