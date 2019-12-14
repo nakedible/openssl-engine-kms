@@ -45,7 +45,6 @@ const EVP_PKEY_CTRL_GET_RSA_PADDING : c_int = EVP_PKEY_ALG_CTRL + 6;
 const EVP_PKEY_CTRL_GET_RSA_OAEP_MD : c_int = EVP_PKEY_ALG_CTRL + 11;
 const EVP_PKEY_OP_ENCRYPT : c_int = 1<<8;
 const EVP_PKEY_OP_DECRYPT : c_int = 1<<9;
-const EVP_PKEY_OP_TYPE_CRYPT : c_int = EVP_PKEY_OP_ENCRYPT | EVP_PKEY_OP_DECRYPT;
 const NID_sha1 : c_int = 64;
 const NID_sha256 : c_int = 672;
 
