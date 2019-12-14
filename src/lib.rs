@@ -36,12 +36,28 @@ const OSSL_DYNAMIC_OLDEST : c_ulong = 0x00030000;
 
 const RSA_FLAG_EXT_PKEY : c_int = 0x0020;
 const RSA_FLAG_NO_BLINDING : c_int = 0x0080;
+const RSA_PKCS1_OAEP_PADDING : c_int = 4;
 
 const EVP_PKEY_RSA : c_int = 6;
+const EVP_PKEY_EC : c_int = 408;
+const EVP_PKEY_FLAG_AUTOARGLEN : c_int = 2;
+const EVP_PKEY_ALG_CTRL : c_int = 0x1000;
+const EVP_PKEY_CTRL_GET_RSA_PADDING : c_int = EVP_PKEY_ALG_CTRL + 6;
+const EVP_PKEY_CTRL_GET_RSA_OAEP_MD : c_int = EVP_PKEY_ALG_CTRL + 11;
+const EVP_PKEY_OP_ENCRYPT : c_int = 1<<8;
+const EVP_PKEY_OP_DECRYPT : c_int = 1<<9;
+const EVP_PKEY_OP_TYPE_CRYPT : c_int = EVP_PKEY_OP_ENCRYPT | EVP_PKEY_OP_DECRYPT;
+const NID_sha1 : c_int = 64;
+const NID_sha256 : c_int = 672;
+
+static EVP_NIDS : [c_int; 2] = [EVP_PKEY_RSA, EVP_PKEY_EC];
 
 type ENGINE = *mut c_void;
 type RSA_METHOD = *mut c_void;
 type EVP_PKEY = *mut c_void;
+type EVP_PKEY_METHOD = *mut c_void;
+type EVP_PKEY_CTX = *mut c_void;
+type EVP_MD = *mut c_void;
 type RSA = *mut c_void;
 type BIO = *mut c_void;
 
@@ -72,6 +88,7 @@ extern {
   fn ENGINE_set_init_function(e: ENGINE, init_f: extern fn(ENGINE) -> c_int) -> c_int;
   fn ENGINE_set_RSA(e: ENGINE, rsa: RSA_METHOD) -> c_int;
   fn ENGINE_set_RAND(e: ENGINE, rand_meth: *const rand_meth_st) -> c_int;
+  fn ENGINE_set_pkey_meths(e: ENGINE, f: extern fn(e: ENGINE, pmeth: *mut EVP_PKEY_METHOD, nids: *mut *const c_int, nid: c_int) -> c_int) -> c_int;
   fn ENGINE_set_load_privkey_function(e: ENGINE, loadpriv_f: extern fn(ENGINE, *const c_char, *mut c_void, *mut c_void) -> EVP_PKEY) -> c_int;
   fn ENGINE_set_load_pubkey_function(e: ENGINE, loadpub_f: extern fn(ENGINE, *const c_char, *mut c_void, *mut c_void) -> EVP_PKEY) -> c_int;
   fn RSA_get_default_method() -> RSA_METHOD;
@@ -89,6 +106,14 @@ extern {
   fn EVP_PKEY_get1_RSA(pkey: EVP_PKEY) -> RSA;
   fn EVP_PKEY_set1_engine(pkey: EVP_PKEY, e: ENGINE) -> c_int;
   fn EVP_PKEY_bits(pkey: EVP_PKEY) -> c_int;
+  fn EVP_PKEY_meth_new(id: c_int, flags: c_int) -> EVP_PKEY_METHOD;
+  fn EVP_PKEY_meth_copy(dst: EVP_PKEY_METHOD, src: EVP_PKEY_METHOD);
+  fn EVP_PKEY_meth_find(typ: c_int) -> EVP_PKEY_METHOD;
+  fn EVP_PKEY_meth_set_decrypt(pmeth: EVP_PKEY_METHOD, decrypt_init: extern fn(ctx: EVP_PKEY_CTX) -> c_int, decrypt: extern fn(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, in_: *const c_uchar, inlen: c_int) -> c_int);
+  fn EVP_PKEY_CTX_get0_pkey(ctx: EVP_PKEY_CTX) -> EVP_PKEY;
+  //fn RSA_pkey_ctx_ctrl(ctx: EVP_PKEY_CTX, optype: c_int, cmd: c_int, p1: c_int, p2: *mut c_void) -> c_int;
+  fn EVP_PKEY_CTX_ctrl(ctx: EVP_PKEY_CTX, keytype: c_int, optype: c_int, cmd: c_int, p1: c_int, p2: *mut c_void) -> c_int;
+  fn EVP_MD_type(md: EVP_MD) -> c_int;
   fn BIO_new_mem_buf(buf: *const c_void, len: c_int) -> BIO;
   fn d2i_PUBKEY_bio(bp: BIO, a: *mut EVP_PKEY) -> EVP_PKEY;
 }
@@ -180,6 +205,73 @@ extern fn rsa_finish(rsa: RSA) -> c_int {
   return 1;
 }
 
+extern fn rsa_decrypt_init(ctx: EVP_PKEY_CTX) -> c_int {
+  println!("decrypt init!");
+  return 1;
+}
+
+extern fn rsa_decrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, in_: *const c_uchar, inlen: c_int) -> c_int {
+  println!("decrypt!");
+  let ciphertext = unsafe { from_buf_raw(in_, inlen as usize) };
+  let rsa = unsafe { EVP_PKEY_get1_RSA(EVP_PKEY_CTX_get0_pkey(ctx)) };
+  let keys = KEYS.lock().unwrap();
+  let key_info = keys.get(&(rsa as usize)).expect("could not find key info");
+  let key_id = &key_info.key_id;
+  let mut padding : c_int = 0;
+  let mut md : EVP_MD = ptr::null_mut();
+  let mut alg = None;
+  unsafe {
+    openssl_try!(EVP_PKEY_CTX_ctrl(ctx, -1, -1, EVP_PKEY_CTRL_GET_RSA_PADDING, 0, &mut padding as *mut _ as *mut c_void));
+    if padding != RSA_PKCS1_OAEP_PADDING { panic!("not oaep"); }
+    openssl_try!(EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA, EVP_PKEY_OP_TYPE_CRYPT, EVP_PKEY_CTRL_GET_RSA_OAEP_MD, 0, &mut md as *mut _ as *mut c_void));
+    let md_type = EVP_MD_type(md);
+    if md_type == NID_sha1 {
+      alg = Some("RSAES_OAEP_SHA_1".to_string());
+    } else if md_type == NID_sha256 {
+      alg = Some("RSAES_OAEP_SHA_256".to_string());
+    } else {
+      panic!("unsupported md");
+    }
+  }
+  let req = rusoto_kms::DecryptRequest {
+    ciphertext_blob: Bytes::from(ciphertext),
+    encryption_algorithm: alg,
+    encryption_context: None,
+    grant_tokens: None,
+    key_id: Some(key_id.to_string())
+  };
+  let output = KMS_CLIENT.decrypt(req).sync().expect("kms decrypt failed");
+  let bytes = output.plaintext.expect("plaintext was not returned");
+  println!("decrypt bytes {:?}", bytes);
+  unsafe {
+    out.copy_from(bytes.as_ptr(), bytes.len());
+    *outlen = bytes.len();
+  }
+  return 1;
+}
+
+extern fn pkey_meths(e: ENGINE, pmeth: *mut EVP_PKEY_METHOD, nids: *mut *const c_int, nid: c_int) -> c_int {
+  if (pmeth == ptr::null_mut()) {
+    unsafe { *nids = EVP_NIDS.as_ptr(); }
+    return EVP_NIDS.len() as c_int;
+  } else if nid == EVP_PKEY_RSA {
+    println!("want rsa");
+    unsafe {
+      let pkey_meth = EVP_PKEY_meth_new(EVP_PKEY_RSA, EVP_PKEY_FLAG_AUTOARGLEN);
+      let orig_meth = EVP_PKEY_meth_find(EVP_PKEY_RSA);
+      EVP_PKEY_meth_copy(pkey_meth, orig_meth);
+      EVP_PKEY_meth_set_decrypt(pkey_meth, rsa_decrypt_init, rsa_decrypt);
+      *pmeth = pkey_meth;
+    }
+    return 1;
+  } else if nid == EVP_PKEY_EC {
+    println!("want ec");
+  } else {
+    panic!("aiee");
+  }
+  return 0;
+}
+
 extern fn load_privkey(e: ENGINE, key_id: *const c_char, ui_method: *mut c_void, callback_data: *mut c_void) -> EVP_PKEY {
   println!("load_privkey {:?}", callback_data);
   let key_id = unsafe { std::ffi::CStr::from_ptr(key_id).to_str().unwrap() };
@@ -242,6 +334,7 @@ pub extern fn bind_engine(e: ENGINE, _id: *const c_char, fns: *const dynamic_fns
     println!("finish set");
     openssl_try!(ENGINE_set_RSA(e, ops));
     openssl_try!(ENGINE_set_RAND(e, &RAND_METH));
+    openssl_try!(ENGINE_set_pkey_meths(e, pkey_meths));
     openssl_try!(ENGINE_set_load_privkey_function(e, load_privkey));
     openssl_try!(ENGINE_set_load_pubkey_function(e, load_privkey));
   }
