@@ -1,3 +1,4 @@
+#![allow(non_snake_case, non_upper_case_globals, non_camel_case_types)]
 extern crate libc;
 use std::ptr;
 use std::collections::HashMap;
@@ -34,8 +35,6 @@ unsafe fn from_buf_raw<T>(ptr: *const T, elts: usize) -> Vec<T> {
 // OpenSSL header definitions
 const OSSL_DYNAMIC_OLDEST : c_ulong = 0x00030000;
 
-const RSA_FLAG_EXT_PKEY : c_int = 0x0020;
-const RSA_FLAG_NO_BLINDING : c_int = 0x0080;
 const RSA_PKCS1_OAEP_PADDING : c_int = 4;
 
 const EVP_PKEY_RSA : c_int = 6;
@@ -53,7 +52,6 @@ const NID_sha256 : c_int = 672;
 static EVP_NIDS : [c_int; 2] = [EVP_PKEY_RSA, EVP_PKEY_EC];
 
 type ENGINE = *mut c_void;
-type RSA_METHOD = *mut c_void;
 type EVP_PKEY = *mut c_void;
 type EVP_PKEY_METHOD = *mut c_void;
 type EVP_PKEY_CTX = *mut c_void;
@@ -86,25 +84,11 @@ extern {
   fn ENGINE_set_id(e: ENGINE, id: *const c_uchar) -> c_int;
   fn ENGINE_set_name(e: ENGINE, id: *const c_uchar) -> c_int;
   fn ENGINE_set_init_function(e: ENGINE, init_f: extern fn(ENGINE) -> c_int) -> c_int;
-  fn ENGINE_set_RSA(e: ENGINE, rsa: RSA_METHOD) -> c_int;
   fn ENGINE_set_RAND(e: ENGINE, rand_meth: *const rand_meth_st) -> c_int;
   fn ENGINE_set_pkey_meths(e: ENGINE, f: extern fn(e: ENGINE, pmeth: *mut EVP_PKEY_METHOD, nids: *mut *const c_int, nid: c_int) -> c_int) -> c_int;
   fn ENGINE_set_load_privkey_function(e: ENGINE, loadpriv_f: extern fn(ENGINE, *const c_char, *mut c_void, *mut c_void) -> EVP_PKEY) -> c_int;
   fn ENGINE_set_load_pubkey_function(e: ENGINE, loadpub_f: extern fn(ENGINE, *const c_char, *mut c_void, *mut c_void) -> EVP_PKEY) -> c_int;
-  fn RSA_get_default_method() -> RSA_METHOD;
-  fn RSA_meth_dup(meth: RSA_METHOD) -> RSA_METHOD;
-  fn RSA_meth_set1_name(meth: RSA_METHOD, name: *const c_uchar) -> c_int;
-  fn RSA_meth_set_flags(meth: RSA_METHOD, flags: c_int) -> c_int;
-  fn RSA_meth_set_priv_enc(meth: RSA_METHOD, priv_enc: extern fn(flen: c_int, from: *const c_uchar, to: *mut c_uchar, rsa: RSA, padding: c_int) -> c_int) -> c_int;
-  fn RSA_meth_set_priv_dec(meth: RSA_METHOD, priv_dec: extern fn(flen: c_int, from: *const c_uchar, to: *mut c_uchar, rsa: RSA, padding: c_int) -> c_int) -> c_int;
-  fn RSA_meth_set_finish(meth: RSA_METHOD, finish: extern fn(rsa: RSA) -> c_int) -> c_int;
-  fn RSA_meth_set0_app_data(meth: RSA_METHOD, app_data: *const c_void) -> c_int;
-  fn RSA_meth_get0_app_data(meth: RSA_METHOD) -> *mut c_void;
-  fn RSA_new() -> RSA;
-  fn EVP_PKEY_new() -> EVP_PKEY;
-  fn EVP_PKEY_assign(pkey: EVP_PKEY, pkey_type: c_int, rsa: RSA) -> c_int;
   fn EVP_PKEY_get1_RSA(pkey: EVP_PKEY) -> RSA;
-  fn EVP_PKEY_set1_engine(pkey: EVP_PKEY, e: ENGINE) -> c_int;
   fn EVP_PKEY_bits(pkey: EVP_PKEY) -> c_int;
   fn EVP_PKEY_meth_new(id: c_int, flags: c_int) -> EVP_PKEY_METHOD;
   fn EVP_PKEY_meth_copy(dst: EVP_PKEY_METHOD, src: EVP_PKEY_METHOD);
@@ -150,7 +134,7 @@ lazy_static! {
 }
 
 // implementation functions
-extern fn kms_init(e: ENGINE) -> c_int {
+extern fn kms_init(_e: ENGINE) -> c_int {
   println!("kms_init");
   return 1;
 }
@@ -173,39 +157,7 @@ extern fn rand_status() -> c_int {
   return 1;
 }
 
-extern fn rsa_priv_enc(flen: c_int, from: *const c_uchar, to: *mut c_uchar, rsa: RSA, padding: c_int) -> c_int {
-  println!("priv enc");
-  return 0;
-}
-
-extern fn rsa_priv_dec(flen: c_int, from: *const c_uchar, to: *mut c_uchar, rsa: RSA, padding: c_int) -> c_int {
-  println!("priv dec {}", padding);
-  let ciphertext = unsafe { from_buf_raw(from, flen as usize) };
-  let keys = KEYS.lock().unwrap();
-  let key_info = keys.get(&(rsa as usize)).expect("could not find key info");
-  let key_id = &key_info.key_id;
-  let req = rusoto_kms::DecryptRequest {
-    ciphertext_blob: Bytes::from(ciphertext),
-    encryption_algorithm: Some("RSAES_OAEP_SHA_1".to_string()),
-    encryption_context: None,
-    grant_tokens: None,
-    key_id: Some(key_id.to_string())
-  };
-  let output = KMS_CLIENT.decrypt(req).sync().expect("kms decrypt failed");
-  let bytes = output.plaintext.expect("plaintext was not returned");
-  println!("decrypt bytes {:?}", bytes);
-  unsafe {
-    to.copy_from(bytes.as_ptr(), bytes.len());
-  }
-  return bytes.len() as c_int;
-}
-
-extern fn rsa_finish(rsa: RSA) -> c_int {
-  println!("rsa finish");
-  return 1;
-}
-
-extern fn rsa_decrypt_init(ctx: EVP_PKEY_CTX) -> c_int {
+extern fn rsa_decrypt_init(_ctx: EVP_PKEY_CTX) -> c_int {
   println!("decrypt init!");
   return 1;
 }
@@ -219,7 +171,7 @@ extern fn rsa_decrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, 
   let key_id = &key_info.key_id;
   let mut padding : c_int = 0;
   let mut md : EVP_MD = ptr::null_mut();
-  let mut alg = None;
+  let alg;
   unsafe {
     openssl_try!(EVP_PKEY_CTX_ctrl(ctx, -1, -1, EVP_PKEY_CTRL_GET_RSA_PADDING, 0, &mut padding as *mut _ as *mut c_void));
     if padding != RSA_PKCS1_OAEP_PADDING { panic!("not oaep"); }
@@ -250,8 +202,8 @@ extern fn rsa_decrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, 
   return 1;
 }
 
-extern fn pkey_meths(e: ENGINE, pmeth: *mut EVP_PKEY_METHOD, nids: *mut *const c_int, nid: c_int) -> c_int {
-  if (pmeth == ptr::null_mut()) {
+extern fn pkey_meths(_e: ENGINE, pmeth: *mut EVP_PKEY_METHOD, nids: *mut *const c_int, nid: c_int) -> c_int {
+  if pmeth == ptr::null_mut() {
     unsafe { *nids = EVP_NIDS.as_ptr(); }
     return EVP_NIDS.len() as c_int;
   } else if nid == EVP_PKEY_RSA {
@@ -272,8 +224,8 @@ extern fn pkey_meths(e: ENGINE, pmeth: *mut EVP_PKEY_METHOD, nids: *mut *const c
   return 0;
 }
 
-extern fn load_privkey(e: ENGINE, key_id: *const c_char, ui_method: *mut c_void, callback_data: *mut c_void) -> EVP_PKEY {
-  println!("load_privkey {:?}", callback_data);
+extern fn load_privkey(_e: ENGINE, key_id: *const c_char, _ui_method: *mut c_void, _callback_data: *mut c_void) -> EVP_PKEY {
+  println!("load_privkey");
   let key_id = unsafe { std::ffi::CStr::from_ptr(key_id).to_str().unwrap() };
   let req = rusoto_kms::GetPublicKeyRequest {
     grant_tokens: None,
@@ -325,14 +277,6 @@ pub extern fn bind_engine(e: ENGINE, _id: *const c_char, fns: *const dynamic_fns
     openssl_try!(ENGINE_set_id(e, ENGINE_ID.as_ptr()));
     openssl_try!(ENGINE_set_name(e, ENGINE_NAME.as_ptr()));
     openssl_try!(ENGINE_set_init_function(e, kms_init));
-    let ops = openssl_try!(RSA_meth_dup(RSA_get_default_method()), ptr::null_mut());
-    openssl_try!(RSA_meth_set1_name(ops, "KMS RSA method\0".as_ptr()));
-    openssl_try!(RSA_meth_set_flags(ops, RSA_FLAG_EXT_PKEY | RSA_FLAG_NO_BLINDING));
-    openssl_try!(RSA_meth_set_priv_enc(ops, rsa_priv_enc));
-    openssl_try!(RSA_meth_set_priv_dec(ops, rsa_priv_dec));
-    openssl_try!(RSA_meth_set_finish(ops, rsa_finish));
-    println!("finish set");
-    openssl_try!(ENGINE_set_RSA(e, ops));
     openssl_try!(ENGINE_set_RAND(e, &RAND_METH));
     openssl_try!(ENGINE_set_pkey_meths(e, pkey_meths));
     openssl_try!(ENGINE_set_load_privkey_function(e, load_privkey));
@@ -340,14 +284,3 @@ pub extern fn bind_engine(e: ENGINE, _id: *const c_char, fns: *const dynamic_fns
   }
   return 1;
 }
-
-/*
-	ops = RSA_meth_dup(RSA_get_default_method());
-		if (ops == NULL)
-			return NULL;
-		RSA_meth_set1_name(ops, "libp11 RSA method");
-		RSA_meth_set_flags(ops, 0);
-		RSA_meth_set_priv_enc(ops, pkcs11_rsa_priv_enc_method);
-		RSA_meth_set_priv_dec(ops, pkcs11_rsa_priv_dec_method);
-		RSA_meth_set_finish(ops, pkcs11_rsa_free_method);
-*/
