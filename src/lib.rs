@@ -173,16 +173,14 @@ extern fn rsa_decrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, 
     let mut padding : c_int = 0;
     let mut md : EVP_MD = ptr::null_mut();
     openssl_try!(EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA, EVP_PKEY_OP_DECRYPT, EVP_PKEY_CTRL_GET_RSA_PADDING, 0, &mut padding as *mut _ as *mut c_void));
-    if padding != RSA_PKCS1_OAEP_PADDING { panic!("not oaep"); }
     openssl_try!(EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA, EVP_PKEY_OP_DECRYPT, EVP_PKEY_CTRL_GET_RSA_OAEP_MD, 0, &mut md as *mut _ as *mut c_void));
+    if md == ptr::null_mut() { panic!("md not available"); }
     let md_type = EVP_MD_type(md);
-    if md_type == NID_sha1 {
-      alg = Some("RSAES_OAEP_SHA_1".to_string());
-    } else if md_type == NID_sha256 {
-      alg = Some("RSAES_OAEP_SHA_256".to_string());
-    } else {
-      panic!("unsupported md");
-    }
+    alg = match (padding, md_type) {
+      (RSA_PKCS1_OAEP_PADDING, NID_sha1) => Some("RSAES_OAEP_SHA_1".to_string()),
+      (RSA_PKCS1_OAEP_PADDING, NID_sha256) => Some("RSAES_OAEP_SHA_256".to_string()),
+      _ => panic!("unsupported padding or md")
+    };
   }
   let req = rusoto_kms::DecryptRequest {
     ciphertext_blob: Bytes::from(ciphertext),
