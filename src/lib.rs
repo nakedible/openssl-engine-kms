@@ -115,7 +115,7 @@ static RAND_METH : rand_meth_st = rand_meth_st {
   status: Some(rand_status)
 };
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum KeyUsage {
   None,
   SignVerify,
@@ -168,6 +168,7 @@ extern fn rsa_encrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, 
   let rsa = unsafe { EVP_PKEY_get1_RSA(EVP_PKEY_CTX_get0_pkey(ctx)) };
   let keys = KEYS.lock().unwrap();
   let key_info = keys.get(&(rsa as usize)).expect("could not find key info");
+  if key_info.usage != KeyUsage::EncryptDecrypt { panic!("key not usage does not allow encrypt"); }
   let key_id = &key_info.key_id;
   let alg;
   unsafe {
@@ -211,6 +212,7 @@ extern fn rsa_decrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, 
   let rsa = unsafe { EVP_PKEY_get1_RSA(EVP_PKEY_CTX_get0_pkey(ctx)) };
   let keys = KEYS.lock().unwrap();
   let key_info = keys.get(&(rsa as usize)).expect("could not find key info");
+  if key_info.usage != KeyUsage::EncryptDecrypt { panic!("key not usage does not allow decrypt"); }
   let key_id = &key_info.key_id;
   let alg;
   unsafe {
