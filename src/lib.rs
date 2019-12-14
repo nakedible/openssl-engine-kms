@@ -172,7 +172,7 @@ extern fn rsa_decrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, 
   unsafe {
     let mut padding : c_int = 0;
     let mut md : EVP_MD = ptr::null_mut();
-      openssl_try!(EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA, EVP_PKEY_OP_DECRYPT, EVP_PKEY_CTRL_GET_RSA_PADDING, 0, &mut padding as *mut _ as *mut c_void));
+    openssl_try!(EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA, EVP_PKEY_OP_DECRYPT, EVP_PKEY_CTRL_GET_RSA_PADDING, 0, &mut padding as *mut _ as *mut c_void));
     if padding != RSA_PKCS1_OAEP_PADDING { panic!("not oaep"); }
     openssl_try!(EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA, EVP_PKEY_OP_DECRYPT, EVP_PKEY_CTRL_GET_RSA_OAEP_MD, 0, &mut md as *mut _ as *mut c_void));
     let md_type = EVP_MD_type(md);
