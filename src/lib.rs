@@ -1,8 +1,10 @@
 extern crate libc;
+use std::ptr;
+use std::collections::HashMap;
+use std::sync::Mutex;
 use libc::{c_void, c_char, c_uchar, c_int, c_uint, c_long, c_ulong, c_double};
 use rusoto_core::Region;
 use rusoto_kms::{Kms, KmsClient};
-use std::ptr;
 use bytes::Bytes;
 
 #[macro_use]
@@ -74,7 +76,7 @@ extern {
   fn RSA_meth_set_flags(meth: RSA_METHOD, flags: c_int) -> c_int;
   fn RSA_meth_set_priv_enc(meth: RSA_METHOD, priv_enc: extern fn(flen: c_int, from: *const c_uchar, to: *mut c_uchar, rsa: RSA, padding: c_int) -> c_int) -> c_int;
   fn RSA_meth_set_priv_dec(meth: RSA_METHOD, priv_dec: extern fn(flen: c_int, from: *const c_uchar, to: *mut c_uchar, rsa: RSA, padding: c_int) -> c_int) -> c_int;
-  fn RSA_meth_set_finish(meth: RSA_METHOD) -> c_int;
+  fn RSA_meth_set_finish(meth: RSA_METHOD, finish: extern fn(rsa: RSA) -> c_int) -> c_int;
   fn RSA_meth_set0_app_data(meth: RSA_METHOD, app_data: *const c_void) -> c_int;
   fn RSA_meth_get0_app_data(meth: RSA_METHOD) -> *mut c_void;
   fn RSA_new() -> RSA;
@@ -100,8 +102,22 @@ static RAND_METH : rand_meth_st = rand_meth_st {
   status: Some(rand_status)
 };
 
+#[derive(Debug)]
+enum KeyUsage {
+  None,
+  SignVerify,
+  EncryptDecrypt
+}
+
+#[derive(Debug)]
+struct KeyInfo {
+  usage: KeyUsage,
+  key_id: String
+}
+
 lazy_static! {
   static ref KMS_CLIENT : KmsClient = KmsClient::new(Region::EuWest1);
+  static ref KEYS : Mutex<HashMap<usize, KeyInfo>> = Mutex::new(HashMap::new());
 }
 
 // implementation functions
@@ -134,45 +150,57 @@ extern fn rsa_priv_enc(flen: c_int, from: *const c_uchar, to: *mut c_uchar, rsa:
 }
 
 extern fn rsa_priv_dec(flen: c_int, from: *const c_uchar, to: *mut c_uchar, rsa: RSA, padding: c_int) -> c_int {
-  println!("priv dec");
-  let key_id = "arn:aws:kms:eu-west-1:378072147349:key/520ba1f2-94b4-4b86-acc6-546066d55f57".to_string();
+  println!("priv dec {}", padding);
   let ciphertext = unsafe { from_buf_raw(from, flen as usize) };
+  let keys = KEYS.lock().unwrap();
+  let key_info = keys.get(&(rsa as usize)).expect("could not find key info");
+  let key_id = &key_info.key_id;
   let req = rusoto_kms::DecryptRequest {
     ciphertext_blob: Bytes::from(ciphertext),
     encryption_algorithm: Some("RSAES_OAEP_SHA_1".to_string()),
     encryption_context: None,
     grant_tokens: None,
-    key_id: Some(key_id)
+    key_id: Some(key_id.to_string())
   };
   let output = KMS_CLIENT.decrypt(req).sync().expect("kms decrypt failed");
   let bytes = output.plaintext.expect("plaintext was not returned");
   println!("decrypt bytes {:?}", bytes);
   unsafe {
     to.copy_from(bytes.as_ptr(), bytes.len());
-    let ptr = RSA_meth_get0_app_data(rsa);
-    println!("ptr {:?}", ptr);
   }
   return bytes.len() as c_int;
 }
 
+extern fn rsa_finish(rsa: RSA) -> c_int {
+  println!("rsa finish");
+  return 1;
+}
+
 extern fn load_privkey(e: ENGINE, key_id: *const c_char, ui_method: *mut c_void, callback_data: *mut c_void) -> EVP_PKEY {
-  println!("load_privkey");
-  let key_id = unsafe { std::ffi::CStr::from_ptr(key_id).to_str().unwrap().to_string() };
+  println!("load_privkey {:?}", callback_data);
+  let key_id = unsafe { std::ffi::CStr::from_ptr(key_id).to_str().unwrap() };
   let req = rusoto_kms::GetPublicKeyRequest {
     grant_tokens: None,
-    key_id: key_id
+    key_id: key_id.to_string()
   };
   let output = KMS_CLIENT.get_public_key(req).sync().expect("kms get public key failed");
   let bytes = output.public_key.expect("public key not returned");
+  let key_info = KeyInfo {
+    usage: match output.key_usage.unwrap_or("NONE".to_string()).as_str() {
+      "NONE" => KeyUsage::None,
+      "SIGN_VERIFY" => KeyUsage::SignVerify,
+      "ENCRYPT_DECRYPT" => KeyUsage::EncryptDecrypt,
+      _ => panic!("aiee")
+    },
+    key_id: key_id.to_string()
+  };
+  println!("key_info: {:?}", &key_info);
   unsafe {
     let key_bio = BIO_new_mem_buf(bytes.as_ptr() as *const c_void, bytes.len() as c_int);
     let pubkey = d2i_PUBKEY_bio(key_bio, std::ptr::null_mut());
     println!("bits: {}", EVP_PKEY_bits(pubkey));
     let rsa = EVP_PKEY_get1_RSA(pubkey);
-    let ptr = "foo".as_ptr() as *const c_void;
-    println!("ptr {:?}", ptr);
-    assert_eq!(RSA_meth_set0_app_data(rsa, ptr), 1);
-    //println!("keyval {:?} {:?}", key, newkey);
+    KEYS.lock().unwrap().insert(rsa as usize, key_info);
     //let rsa = RSA_new();
     // RSA_set_method
     //assert_eq!(EVP_PKEY_assign(key, EVP_PKEY_RSA, rsa), 1);
@@ -206,6 +234,8 @@ pub extern fn bind_engine(e: ENGINE, _id: *const c_char, fns: *const dynamic_fns
     assert_eq!(RSA_meth_set_flags(ops, RSA_FLAG_EXT_PKEY | RSA_FLAG_NO_BLINDING), 1);
     assert_eq!(RSA_meth_set_priv_enc(ops, rsa_priv_enc), 1);
     assert_eq!(RSA_meth_set_priv_dec(ops, rsa_priv_dec), 1);
+    assert_eq!(RSA_meth_set_finish(ops, rsa_finish), 1);
+    println!("finish set");
     assert_eq!(ENGINE_set_RSA(e, ops), 1);
     assert_eq!(ENGINE_set_RAND(e, &RAND_METH), 1);
     assert_eq!(ENGINE_set_load_privkey_function(e, load_privkey), 1);
