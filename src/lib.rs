@@ -93,6 +93,7 @@ extern {
   fn EVP_PKEY_meth_new(id: c_int, flags: c_int) -> EVP_PKEY_METHOD;
   fn EVP_PKEY_meth_copy(dst: EVP_PKEY_METHOD, src: EVP_PKEY_METHOD);
   fn EVP_PKEY_meth_find(typ: c_int) -> EVP_PKEY_METHOD;
+  fn EVP_PKEY_meth_set_encrypt(pmeth: EVP_PKEY_METHOD, encrypt_init: extern fn(ctx: EVP_PKEY_CTX) -> c_int, encrypt: extern fn(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, in_: *const c_uchar, inlen: c_int) -> c_int);
   fn EVP_PKEY_meth_set_decrypt(pmeth: EVP_PKEY_METHOD, decrypt_init: extern fn(ctx: EVP_PKEY_CTX) -> c_int, decrypt: extern fn(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, in_: *const c_uchar, inlen: c_int) -> c_int);
   fn EVP_PKEY_CTX_get0_pkey(ctx: EVP_PKEY_CTX) -> EVP_PKEY;
   fn EVP_PKEY_CTX_ctrl(ctx: EVP_PKEY_CTX, keytype: c_int, optype: c_int, cmd: c_int, p1: c_int, p2: *mut c_void) -> c_int;
@@ -156,6 +157,49 @@ extern fn rand_status() -> c_int {
   return 1;
 }
 
+extern fn rsa_encrypt_init(_ctx: EVP_PKEY_CTX) -> c_int {
+  println!("encrypt init!");
+  return 1;
+}
+
+extern fn rsa_encrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, in_: *const c_uchar, inlen: c_int) -> c_int {
+  println!("encrypt!");
+  let plaintext = unsafe { from_buf_raw(in_, inlen as usize) };
+  let rsa = unsafe { EVP_PKEY_get1_RSA(EVP_PKEY_CTX_get0_pkey(ctx)) };
+  let keys = KEYS.lock().unwrap();
+  let key_info = keys.get(&(rsa as usize)).expect("could not find key info");
+  let key_id = &key_info.key_id;
+  let alg;
+  unsafe {
+    let mut padding : c_int = 0;
+    let mut md : EVP_MD = ptr::null_mut();
+    openssl_try!(EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA, EVP_PKEY_OP_ENCRYPT, EVP_PKEY_CTRL_GET_RSA_PADDING, 0, &mut padding as *mut _ as *mut c_void));
+    openssl_try!(EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA, EVP_PKEY_OP_ENCRYPT, EVP_PKEY_CTRL_GET_RSA_OAEP_MD, 0, &mut md as *mut _ as *mut c_void));
+    if md == ptr::null_mut() { panic!("md not available"); }
+    let md_type = EVP_MD_type(md);
+    alg = match (padding, md_type) {
+      (RSA_PKCS1_OAEP_PADDING, NID_sha1) => Some("RSAES_OAEP_SHA_1".to_string()),
+      (RSA_PKCS1_OAEP_PADDING, NID_sha256) => Some("RSAES_OAEP_SHA_256".to_string()),
+      _ => panic!("unsupported padding or md")
+    };
+  }
+  let req = rusoto_kms::EncryptRequest {
+    plaintext: Bytes::from(plaintext),
+    encryption_algorithm: alg,
+    encryption_context: None,
+    grant_tokens: None,
+    key_id: key_id.to_string()
+  };
+  let output = KMS_CLIENT.encrypt(req).sync().expect("kms encrypt failed");
+  let bytes = output.ciphertext_blob.expect("ciphertext was not returned");
+  println!("encrypt bytes {:?}", bytes);
+  unsafe {
+    out.copy_from(bytes.as_ptr(), bytes.len());
+    *outlen = bytes.len();
+  }
+  return 1;
+}
+
 extern fn rsa_decrypt_init(_ctx: EVP_PKEY_CTX) -> c_int {
   println!("decrypt init!");
   return 1;
@@ -209,6 +253,7 @@ extern fn pkey_meths(_e: ENGINE, pmeth: *mut EVP_PKEY_METHOD, nids: *mut *const 
       let pkey_meth = EVP_PKEY_meth_new(EVP_PKEY_RSA, EVP_PKEY_FLAG_AUTOARGLEN);
       let orig_meth = EVP_PKEY_meth_find(EVP_PKEY_RSA);
       EVP_PKEY_meth_copy(pkey_meth, orig_meth);
+      EVP_PKEY_meth_set_encrypt(pkey_meth, rsa_encrypt_init, rsa_encrypt);
       EVP_PKEY_meth_set_decrypt(pkey_meth, rsa_decrypt_init, rsa_decrypt);
       *pmeth = pkey_meth;
     }
