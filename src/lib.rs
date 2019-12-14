@@ -203,7 +203,7 @@ extern fn load_privkey(e: ENGINE, key_id: *const c_char, ui_method: *mut c_void,
     KEYS.lock().unwrap().insert(rsa as usize, key_info);
     //let rsa = RSA_new();
     // RSA_set_method
-    //assert_eq!(EVP_PKEY_assign(key, EVP_PKEY_RSA, rsa), 1);
+    //openssl_try!(EVP_PKEY_assign(key, EVP_PKEY_RSA, rsa));
     // RSA_set_app_data
     // RSA_set0_key
     // RSA_set0_factors
@@ -227,19 +227,19 @@ pub extern fn bind_engine(e: ENGINE, _id: *const c_char, fns: *const dynamic_fns
       openssl_try!(CRYPTO_set_mem_functions((*fns).dyn_MEM_malloc_fn, (*fns).dyn_MEM_realloc_fn, (*fns).dyn_MEM_free_fn));
     }
     openssl_try!(ENGINE_set_id(e, ENGINE_ID.as_ptr()));
-    assert_eq!(ENGINE_set_name(e, ENGINE_NAME.as_ptr()), 1);
-    assert_eq!(ENGINE_set_init_function(e, kms_init), 1);
+    openssl_try!(ENGINE_set_name(e, ENGINE_NAME.as_ptr()));
+    openssl_try!(ENGINE_set_init_function(e, kms_init));
     let ops = RSA_meth_dup(RSA_get_default_method()); // check for null return
-    assert_eq!(RSA_meth_set1_name(ops, "KMS RSA method\0".as_ptr()), 1);
-    assert_eq!(RSA_meth_set_flags(ops, RSA_FLAG_EXT_PKEY | RSA_FLAG_NO_BLINDING), 1);
-    assert_eq!(RSA_meth_set_priv_enc(ops, rsa_priv_enc), 1);
-    assert_eq!(RSA_meth_set_priv_dec(ops, rsa_priv_dec), 1);
-    assert_eq!(RSA_meth_set_finish(ops, rsa_finish), 1);
+    openssl_try!(RSA_meth_set1_name(ops, "KMS RSA method\0".as_ptr()));
+    openssl_try!(RSA_meth_set_flags(ops, RSA_FLAG_EXT_PKEY | RSA_FLAG_NO_BLINDING));
+    openssl_try!(RSA_meth_set_priv_enc(ops, rsa_priv_enc));
+    openssl_try!(RSA_meth_set_priv_dec(ops, rsa_priv_dec));
+    openssl_try!(RSA_meth_set_finish(ops, rsa_finish));
     println!("finish set");
-    assert_eq!(ENGINE_set_RSA(e, ops), 1);
-    assert_eq!(ENGINE_set_RAND(e, &RAND_METH), 1);
-    assert_eq!(ENGINE_set_load_privkey_function(e, load_privkey), 1);
-    assert_eq!(ENGINE_set_load_pubkey_function(e, load_privkey), 1);
+    openssl_try!(ENGINE_set_RSA(e, ops));
+    openssl_try!(ENGINE_set_RAND(e, &RAND_METH));
+    openssl_try!(ENGINE_set_load_privkey_function(e, load_privkey));
+    openssl_try!(ENGINE_set_load_pubkey_function(e, load_privkey));
   }
   return 1;
 }
