@@ -52,6 +52,8 @@ const EVP_PKEY_OP_ENCRYPT : c_int = 1<<8;
 const EVP_PKEY_OP_DECRYPT : c_int = 1<<9;
 const NID_sha1 : c_int = 64;
 const NID_sha256 : c_int = 672;
+const NID_sha384 : c_int = 673;
+const NID_sha512 : c_int = 674;
 
 static EVP_NIDS : [c_int; 2] = [EVP_PKEY_RSA, EVP_PKEY_EC];
 
@@ -187,7 +189,11 @@ extern fn rsa_sign(ctx: EVP_PKEY_CTX, sig: *mut c_uchar, siglen: *mut usize, tbs
     let md_type = EVP_MD_type(md);
     alg = match (padding, md_type) {
       (RSA_PKCS1_PADDING, NID_sha256) => "RSASSA_PKCS1_V1_5_SHA_256".to_string(),
-      // FIXME: add rest
+      (RSA_PKCS1_PADDING, NID_sha384) => "RSASSA_PKCS1_V1_5_SHA_384".to_string(),
+      (RSA_PKCS1_PADDING, NID_sha512) => "RSASSA_PKCS1_V1_5_SHA_512".to_string(),
+      (RSA_PKCS1_PSS_PADDING, NID_sha256) => "RSASSA_PSS_SHA_256".to_string(),
+      (RSA_PKCS1_PSS_PADDING, NID_sha384) => "RSASSA_PSS_SHA_384".to_string(),
+      (RSA_PKCS1_PSS_PADDING, NID_sha512) => "RSASSA_PSS_SHA_512".to_string(),
       _ => panic!("unsupported padding or md: {} {}", padding, md_type)
     };
   }
@@ -232,7 +238,11 @@ extern fn rsa_verify(ctx: EVP_PKEY_CTX, sig: *const c_uchar, siglen: usize, tbs:
     let md_type = EVP_MD_type(md);
     alg = match (padding, md_type) {
       (RSA_PKCS1_PADDING, NID_sha256) => "RSASSA_PKCS1_V1_5_SHA_256".to_string(),
-      // FIXME: add rest
+      (RSA_PKCS1_PADDING, NID_sha384) => "RSASSA_PKCS1_V1_5_SHA_384".to_string(),
+      (RSA_PKCS1_PADDING, NID_sha512) => "RSASSA_PKCS1_V1_5_SHA_512".to_string(),
+      (RSA_PKCS1_PSS_PADDING, NID_sha256) => "RSASSA_PSS_SHA_256".to_string(),
+      (RSA_PKCS1_PSS_PADDING, NID_sha384) => "RSASSA_PSS_SHA_384".to_string(),
+      (RSA_PKCS1_PSS_PADDING, NID_sha512) => "RSASSA_PSS_SHA_512".to_string(),
       _ => panic!("unsupported padding or md: {} {}", padding, md_type)
     };
   }
