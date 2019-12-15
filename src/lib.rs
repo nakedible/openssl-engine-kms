@@ -62,7 +62,6 @@ type EVP_PKEY = *mut c_void;
 type EVP_PKEY_METHOD = *mut c_void;
 type EVP_PKEY_CTX = *mut c_void;
 type EVP_MD = *mut c_void;
-type EVP_MD_CTX = *mut c_void;
 type RSA = *mut c_void;
 type BIO = *mut c_void;
 
@@ -166,7 +165,7 @@ extern fn rand_status() -> c_int {
   return 1;
 }
 
-extern fn rsa_sign_init(ctx: EVP_PKEY_CTX) -> c_int {
+extern fn rsa_sign_init(_ctx: EVP_PKEY_CTX) -> c_int {
   println!("sign init!");
   return 1;
 }
@@ -214,7 +213,7 @@ extern fn rsa_sign(ctx: EVP_PKEY_CTX, sig: *mut c_uchar, siglen: *mut usize, tbs
   return 1;
 }
 
-extern fn rsa_verify_init(ctx: EVP_PKEY_CTX) -> c_int {
+extern fn rsa_verify_init(_ctx: EVP_PKEY_CTX) -> c_int {
   println!("verify init!");
   return 1;
 }
