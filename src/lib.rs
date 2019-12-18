@@ -35,12 +35,19 @@ unsafe fn from_buf_raw<T>(ptr: *const T, elts: usize) -> Vec<T> {
 // OpenSSL header definitions
 const OSSL_DYNAMIC_OLDEST : c_ulong = 0x00030000;
 
+const NID_rsaEncryption : c_int = 6;
+const NID_X9_62_id_ecPublicKey : c_int = 408;
+const NID_sha1 : c_int = 64;
+const NID_sha256 : c_int = 672;
+const NID_sha384 : c_int = 673;
+const NID_sha512 : c_int = 674;
+
 const RSA_PKCS1_PADDING : c_int = 1;
 const RSA_PKCS1_OAEP_PADDING : c_int = 4;
 const RSA_PKCS1_PSS_PADDING : c_int = 6;
 
-const EVP_PKEY_RSA : c_int = 6;
-const EVP_PKEY_EC : c_int = 408;
+const EVP_PKEY_RSA : c_int = NID_rsaEncryption;
+const EVP_PKEY_EC : c_int = NID_X9_62_id_ecPublicKey;
 const EVP_PKEY_FLAG_AUTOARGLEN : c_int = 2;
 const EVP_PKEY_ALG_CTRL : c_int = 0x1000;
 const EVP_PKEY_CTRL_GET_MD : c_int = 13;
@@ -50,12 +57,8 @@ const EVP_PKEY_OP_SIGN : c_int = 1<<3;
 const EVP_PKEY_OP_VERIFY : c_int = 1<<4;
 const EVP_PKEY_OP_ENCRYPT : c_int = 1<<8;
 const EVP_PKEY_OP_DECRYPT : c_int = 1<<9;
-const NID_sha1 : c_int = 64;
-const NID_sha256 : c_int = 672;
-const NID_sha384 : c_int = 673;
-const NID_sha512 : c_int = 674;
 
-static EVP_NIDS : [c_int; 2] = [EVP_PKEY_RSA, EVP_PKEY_EC];
+static SUPPORTED_EVP_NIDS : [c_int; 2] = [EVP_PKEY_RSA, EVP_PKEY_EC];
 
 type ENGINE = *mut c_void;
 type EVP_PKEY = *mut c_void;
@@ -65,13 +68,17 @@ type EVP_MD = *mut c_void;
 type RSA = *mut c_void;
 type BIO = *mut c_void;
 
-#[allow(non_snake_case)]
+#[repr(C)]
+pub struct dynamic_MEM_fns {
+  dyn_MEM_malloc_fn: extern fn(usize, *const c_char, c_int) -> *mut c_void,
+  dyn_MEM_realloc_fn: extern fn(*mut c_void, usize, *const c_char, c_int) -> *mut c_void,
+  dyn_MEM_free_fn: extern fn(*mut c_void, *const c_char, c_int)
+}
+
 #[repr(C)]
 pub struct dynamic_fns {
   static_state: *mut c_void,
-  dyn_MEM_malloc_fn: *mut c_void,
-  dyn_MEM_realloc_fn: *mut c_void,
-  dyn_MEM_free_fn: *mut c_void,
+  mem_fns: dynamic_MEM_fns
 }
 
 #[repr(C)]
@@ -86,12 +93,12 @@ pub struct rand_meth_st {
 
 extern {
   fn ENGINE_get_static_state() -> *mut c_void;
-  fn CRYPTO_set_mem_functions(m: *mut c_void, r: *mut c_void, f: *mut c_void) -> c_int;
+  fn CRYPTO_set_mem_functions(m: extern fn(usize, *const c_char, c_int) -> *mut c_void, r: extern fn(*mut c_void, usize, *const c_char, c_int) -> *mut c_void, f: extern fn(*mut c_void, *const c_char, c_int)) -> c_int;
   fn ENGINE_set_id(e: ENGINE, id: *const c_uchar) -> c_int;
   fn ENGINE_set_name(e: ENGINE, id: *const c_uchar) -> c_int;
   fn ENGINE_set_init_function(e: ENGINE, init_f: extern fn(ENGINE) -> c_int) -> c_int;
   fn ENGINE_set_RAND(e: ENGINE, rand_meth: *const rand_meth_st) -> c_int;
-  fn ENGINE_set_pkey_meths(e: ENGINE, f: extern fn(e: ENGINE, pmeth: *mut EVP_PKEY_METHOD, nids: *mut *const c_int, nid: c_int) -> c_int) -> c_int;
+  fn ENGINE_set_pkey_meths(e: ENGINE, f: extern fn(ENGINE, *mut EVP_PKEY_METHOD, *mut *const c_int, c_int) -> c_int) -> c_int;
   fn ENGINE_set_load_privkey_function(e: ENGINE, loadpriv_f: extern fn(ENGINE, *const c_char, *mut c_void, *mut c_void) -> EVP_PKEY) -> c_int;
   fn ENGINE_set_load_pubkey_function(e: ENGINE, loadpub_f: extern fn(ENGINE, *const c_char, *mut c_void, *mut c_void) -> EVP_PKEY) -> c_int;
   fn EVP_PKEY_get1_RSA(pkey: EVP_PKEY) -> RSA;
@@ -99,10 +106,10 @@ extern {
   fn EVP_PKEY_meth_new(id: c_int, flags: c_int) -> EVP_PKEY_METHOD;
   fn EVP_PKEY_meth_copy(dst: EVP_PKEY_METHOD, src: EVP_PKEY_METHOD);
   fn EVP_PKEY_meth_find(typ: c_int) -> EVP_PKEY_METHOD;
-  fn EVP_PKEY_meth_set_encrypt(pmeth: EVP_PKEY_METHOD, encrypt_init: extern fn(ctx: EVP_PKEY_CTX) -> c_int, encrypt: extern fn(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, in_: *const c_uchar, inlen: c_int) -> c_int);
-  fn EVP_PKEY_meth_set_decrypt(pmeth: EVP_PKEY_METHOD, decrypt_init: extern fn(ctx: EVP_PKEY_CTX) -> c_int, decrypt: extern fn(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, in_: *const c_uchar, inlen: c_int) -> c_int);
-  fn EVP_PKEY_meth_set_sign(pmeth: EVP_PKEY_METHOD, sign_init: extern fn(ctx: EVP_PKEY_CTX) -> c_int, sign: extern fn(ctx: EVP_PKEY_CTX, sig: *mut c_uchar, siglen: *mut usize, tbs: *const c_uchar, tbslen: usize) -> c_int);
-  fn EVP_PKEY_meth_set_verify(pmeth: EVP_PKEY_METHOD, verify_init: extern fn(ctx: EVP_PKEY_CTX) -> c_int, verify: extern fn(ctx: EVP_PKEY_CTX, sig: *const c_uchar, siglen: usize, tbs: *const c_uchar, tbslen: usize) -> c_int);
+  fn EVP_PKEY_meth_set_encrypt(pmeth: EVP_PKEY_METHOD, encrypt_init: extern fn(EVP_PKEY_CTX) -> c_int, encrypt: extern fn(EVP_PKEY_CTX, *mut c_uchar, *mut usize, *const c_uchar, c_int) -> c_int);
+  fn EVP_PKEY_meth_set_decrypt(pmeth: EVP_PKEY_METHOD, decrypt_init: extern fn(EVP_PKEY_CTX) -> c_int, decrypt: extern fn(EVP_PKEY_CTX, *mut c_uchar, *mut usize, *const c_uchar, c_int) -> c_int);
+  fn EVP_PKEY_meth_set_sign(pmeth: EVP_PKEY_METHOD, sign_init: extern fn(EVP_PKEY_CTX) -> c_int, sign: extern fn(EVP_PKEY_CTX, *mut c_uchar, *mut usize, *const c_uchar, usize) -> c_int);
+  fn EVP_PKEY_meth_set_verify(pmeth: EVP_PKEY_METHOD, verify_init: extern fn(EVP_PKEY_CTX) -> c_int, verify: extern fn(EVP_PKEY_CTX, *const c_uchar, usize, *const c_uchar, usize) -> c_int);
   fn EVP_PKEY_CTX_get0_pkey(ctx: EVP_PKEY_CTX) -> EVP_PKEY;
   fn EVP_PKEY_CTX_ctrl(ctx: EVP_PKEY_CTX, keytype: c_int, optype: c_int, cmd: c_int, p1: c_int, p2: *mut c_void) -> c_int;
   fn EVP_MD_type(md: EVP_MD) -> c_int;
@@ -349,8 +356,8 @@ extern fn rsa_decrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, 
 
 extern fn pkey_meths(_e: ENGINE, pmeth: *mut EVP_PKEY_METHOD, nids: *mut *const c_int, nid: c_int) -> c_int {
   if pmeth == ptr::null_mut() {
-    unsafe { *nids = EVP_NIDS.as_ptr(); }
-    return EVP_NIDS.len() as c_int;
+    unsafe { *nids = SUPPORTED_EVP_NIDS.as_ptr(); }
+    return SUPPORTED_EVP_NIDS.len() as c_int;
   } else if nid == EVP_PKEY_RSA {
     println!("want rsa");
     unsafe {
@@ -420,7 +427,7 @@ pub extern fn bind_engine(e: ENGINE, _id: *const c_char, fns: *const dynamic_fns
   //println!("bind_engine");
   unsafe {
     if ENGINE_get_static_state() != (*fns).static_state {
-      openssl_try!(CRYPTO_set_mem_functions((*fns).dyn_MEM_malloc_fn, (*fns).dyn_MEM_realloc_fn, (*fns).dyn_MEM_free_fn));
+      openssl_try!(CRYPTO_set_mem_functions((*fns).mem_fns.dyn_MEM_malloc_fn, (*fns).mem_fns.dyn_MEM_realloc_fn, (*fns).mem_fns.dyn_MEM_free_fn));
     }
     openssl_try!(ENGINE_set_id(e, ENGINE_ID.as_ptr()));
     openssl_try!(ENGINE_set_name(e, ENGINE_NAME.as_ptr()));
