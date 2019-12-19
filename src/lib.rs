@@ -322,8 +322,7 @@ extern fn pkey_meths(_e: ENGINE, pmeth: *mut EVP_PKEY_METHOD, nids: *mut *const 
   }
 }
 
-extern fn load_privkey(_e: ENGINE, key_id: *const c_char, _ui_method: *mut c_void, _callback_data: *mut c_void) -> EVP_PKEY {
-  println!("load_privkey");
+extern fn load_key(_e: ENGINE, key_id: *const c_char, _ui_method: *mut c_void, _callback_data: *mut c_void) -> EVP_PKEY {
   let key_id = unsafe { std::ffi::CStr::from_ptr(key_id).to_str().unwrap() };
   let req = rusoto_kms::GetPublicKeyRequest {
     grant_tokens: None,
@@ -342,13 +341,11 @@ extern fn load_privkey(_e: ENGINE, key_id: *const c_char, _ui_method: *mut c_voi
 // openssl engine entry points
 #[no_mangle]
 pub extern fn v_check(v: c_ulong) -> c_ulong {
-  //println!("v_check {}", v);
   if v >= OSSL_DYNAMIC_OLDEST { OSSL_DYNAMIC_OLDEST } else { 0 }
 }
 
 #[no_mangle]
 pub extern fn bind_engine(e: ENGINE, _id: *const c_char, fns: *const dynamic_fns) -> c_int {
-  //println!("bind_engine");
   unsafe {
     if ENGINE_get_static_state() != (*fns).static_state {
       openssl_try!(CRYPTO_set_mem_functions((*fns).mem_fns.dyn_MEM_malloc_fn, (*fns).mem_fns.dyn_MEM_realloc_fn, (*fns).mem_fns.dyn_MEM_free_fn));
@@ -358,8 +355,8 @@ pub extern fn bind_engine(e: ENGINE, _id: *const c_char, fns: *const dynamic_fns
     openssl_try!(ENGINE_set_init_function(e, kms_init));
     openssl_try!(ENGINE_set_RAND(e, &RAND_METH));
     openssl_try!(ENGINE_set_pkey_meths(e, pkey_meths));
-    openssl_try!(ENGINE_set_load_privkey_function(e, load_privkey));
-    openssl_try!(ENGINE_set_load_pubkey_function(e, load_privkey));
+    openssl_try!(ENGINE_set_load_privkey_function(e, load_key));
+    openssl_try!(ENGINE_set_load_pubkey_function(e, load_key));
   }
   return 1;
 }
