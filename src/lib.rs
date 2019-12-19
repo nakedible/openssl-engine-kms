@@ -182,8 +182,7 @@ extern fn rand_status() -> c_int {
   return 1;
 }
 
-extern fn kms_sign_init(_ctx: EVP_PKEY_CTX) -> c_int {
-  println!("sign init!");
+extern fn kms_common_init(_ctx: EVP_PKEY_CTX) -> c_int {
   return 1;
 }
 
@@ -209,11 +208,6 @@ extern fn kms_sign(ctx: EVP_PKEY_CTX, sig: *mut c_uchar, siglen: *mut usize, tbs
   return 1;
 }
 
-extern fn kms_verify_init(_ctx: EVP_PKEY_CTX) -> c_int {
-  println!("verify init!");
-  return 1;
-}
-
 extern fn kms_verify(ctx: EVP_PKEY_CTX, sig: *const c_uchar, siglen: usize, tbs: *const c_uchar, tbslen: usize) -> c_int {
   println!("verify!");
   let message = unsafe { from_buf_raw(tbs, tbslen) };
@@ -231,11 +225,6 @@ extern fn kms_verify(ctx: EVP_PKEY_CTX, sig: *const c_uchar, siglen: usize, tbs:
   let output = KMS_CLIENT.verify(req).sync().expect("kms verify failed");
   // FIXME: invalid signatures reported as KMSInvalidSignatureException
   assert_eq!(output.signature_valid.unwrap(), true);
-  return 1;
-}
-
-extern fn kms_encrypt_init(_ctx: EVP_PKEY_CTX) -> c_int {
-  println!("encrypt init!");
   return 1;
 }
 
@@ -258,11 +247,6 @@ extern fn kms_encrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, 
     out.copy_from(bytes.as_ptr(), bytes.len());
     *outlen = bytes.len();
   }
-  return 1;
-}
-
-extern fn kms_decrypt_init(_ctx: EVP_PKEY_CTX) -> c_int {
-  println!("decrypt init!");
   return 1;
 }
 
@@ -297,10 +281,10 @@ extern fn pkey_meths(_e: ENGINE, pmeth: *mut EVP_PKEY_METHOD, nids: *mut *const 
       let pkey_meth = openssl_try!(EVP_PKEY_meth_new(nid, EVP_PKEY_FLAG_AUTOARGLEN), ptr::null_mut());
       let orig_meth = openssl_try!(EVP_PKEY_meth_find(nid), ptr::null_mut());
       EVP_PKEY_meth_copy(pkey_meth, orig_meth);
-      EVP_PKEY_meth_set_sign(pkey_meth, kms_sign_init, kms_sign);
-      EVP_PKEY_meth_set_verify(pkey_meth, kms_verify_init, kms_verify);
-      EVP_PKEY_meth_set_encrypt(pkey_meth, kms_encrypt_init, kms_encrypt);
-      EVP_PKEY_meth_set_decrypt(pkey_meth, kms_decrypt_init, kms_decrypt);
+      EVP_PKEY_meth_set_sign(pkey_meth, kms_common_init, kms_sign);
+      EVP_PKEY_meth_set_verify(pkey_meth, kms_common_init, kms_verify);
+      EVP_PKEY_meth_set_encrypt(pkey_meth, kms_common_init, kms_encrypt);
+      EVP_PKEY_meth_set_decrypt(pkey_meth, kms_common_init, kms_decrypt);
       *pmeth = pkey_meth;
     }
     return 1;
