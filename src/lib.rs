@@ -53,6 +53,7 @@ const EVP_PKEY_ALG_CTRL : c_int = 0x1000;
 const EVP_PKEY_CTRL_GET_MD : c_int = 13;
 const EVP_PKEY_CTRL_GET_RSA_PADDING : c_int = EVP_PKEY_ALG_CTRL + 6;
 const EVP_PKEY_CTRL_GET_RSA_OAEP_MD : c_int = EVP_PKEY_ALG_CTRL + 11;
+const EVP_PKEY_CTRL_GET_EC_KDF_MD : c_int = EVP_PKEY_ALG_CTRL + 6;
 const EVP_PKEY_OP_SIGN : c_int = 1<<3;
 const EVP_PKEY_OP_VERIFY : c_int = 1<<4;
 const EVP_PKEY_OP_ENCRYPT : c_int = 1<<8;
@@ -101,6 +102,7 @@ extern {
   fn ENGINE_set_pkey_meths(e: ENGINE, f: extern fn(ENGINE, *mut EVP_PKEY_METHOD, *mut *const c_int, c_int) -> c_int) -> c_int;
   fn ENGINE_set_load_privkey_function(e: ENGINE, loadpriv_f: extern fn(ENGINE, *const c_char, *mut c_void, *mut c_void) -> EVP_PKEY) -> c_int;
   fn ENGINE_set_load_pubkey_function(e: ENGINE, loadpub_f: extern fn(ENGINE, *const c_char, *mut c_void, *mut c_void) -> EVP_PKEY) -> c_int;
+  fn EVP_PKEY_base_id(pkey: EVP_PKEY) -> c_int;
   fn EVP_PKEY_get1_RSA(pkey: EVP_PKEY) -> RSA;
   fn EVP_PKEY_bits(pkey: EVP_PKEY) -> c_int;
   fn EVP_PKEY_meth_new(id: c_int, flags: c_int) -> EVP_PKEY_METHOD;
@@ -149,6 +151,30 @@ lazy_static! {
 }
 
 // implementation functions
+unsafe fn get_alg(ctx: EVP_PKEY_CTX) -> String {
+  let mut padding : c_int = 0;
+  let mut md : EVP_MD = ptr::null_mut();
+  let key_type = EVP_PKEY_base_id(EVP_PKEY_CTX_get0_pkey(ctx));
+  if key_type == EVP_PKEY_RSA { EVP_PKEY_CTX_ctrl(ctx, -1, -1, EVP_PKEY_CTRL_GET_RSA_PADDING, 0, &mut padding as *mut _ as *mut c_void); }
+  EVP_PKEY_CTX_ctrl(ctx, -1, -1, if padding == RSA_PKCS1_OAEP_PADDING { EVP_PKEY_CTRL_GET_RSA_OAEP_MD } else { EVP_PKEY_CTRL_GET_MD }, 0, &mut md as *mut _ as *mut c_void);
+  if md == ptr::null_mut() { panic!("md not available"); }
+  let md_type = EVP_MD_type(md);
+  match (key_type, padding, md_type) {
+    (EVP_PKEY_RSA, RSA_PKCS1_PADDING, NID_sha256) => "RSASSA_PKCS1_V1_5_SHA_256".to_string(),
+    (EVP_PKEY_RSA, RSA_PKCS1_PADDING, NID_sha384) => "RSASSA_PKCS1_V1_5_SHA_384".to_string(),
+    (EVP_PKEY_RSA, RSA_PKCS1_PADDING, NID_sha512) => "RSASSA_PKCS1_V1_5_SHA_512".to_string(),
+    (EVP_PKEY_RSA, RSA_PKCS1_PSS_PADDING, NID_sha256) => "RSASSA_PSS_SHA_256".to_string(),
+    (EVP_PKEY_RSA, RSA_PKCS1_PSS_PADDING, NID_sha384) => "RSASSA_PSS_SHA_384".to_string(),
+    (EVP_PKEY_RSA, RSA_PKCS1_PSS_PADDING, NID_sha512) => "RSASSA_PSS_SHA_512".to_string(),
+    (EVP_PKEY_RSA, RSA_PKCS1_OAEP_PADDING, NID_sha1) => "RSAES_OAEP_SHA_1".to_string(),
+    (EVP_PKEY_RSA, RSA_PKCS1_OAEP_PADDING, NID_sha256) => "RSAES_OAEP_SHA_256".to_string(),
+    (EVP_PKEY_EC, _, NID_sha256) => "ECDSA_SHA_256".to_string(),
+    (EVP_PKEY_EC, _, NID_sha384) => "ECDSA_SHA_384".to_string(),
+    (EVP_PKEY_EC, _, NID_sha512) => "ECDSA_SHA_512".to_string(),
+    _ => panic!("unsupported padding or md: {} {}", padding, md_type)
+  }
+}
+
 extern fn kms_init(_e: ENGINE) -> c_int {
   println!("kms_init");
   return 1;
@@ -172,37 +198,20 @@ extern fn rand_status() -> c_int {
   return 1;
 }
 
-extern fn rsa_sign_init(_ctx: EVP_PKEY_CTX) -> c_int {
+extern fn kms_sign_init(_ctx: EVP_PKEY_CTX) -> c_int {
   println!("sign init!");
   return 1;
 }
 
-extern fn rsa_sign(ctx: EVP_PKEY_CTX, sig: *mut c_uchar, siglen: *mut usize, tbs: *const c_uchar, tbslen: usize) -> c_int {
+extern fn kms_sign(ctx: EVP_PKEY_CTX, sig: *mut c_uchar, siglen: *mut usize, tbs: *const c_uchar, tbslen: usize) -> c_int {
   println!("sign!");
   let message = unsafe { from_buf_raw(tbs, tbslen) };
-  let rsa = unsafe { EVP_PKEY_get1_RSA(EVP_PKEY_CTX_get0_pkey(ctx)) };
+  let pkey = unsafe { EVP_PKEY_CTX_get0_pkey(ctx) };
   let keys = KEYS.lock().unwrap();
-  let key_info = keys.get(&(rsa as usize)).expect("could not find key info");
+  let key_info = keys.get(&(pkey as usize)).expect("could not find key info");
   if key_info.usage != KeyUsage::SignVerify { panic!("key not usage does not allow sign"); }
   let key_id = &key_info.key_id;
-  let alg;
-  unsafe {
-    let mut padding : c_int = 0;
-    let mut md : EVP_MD = ptr::null_mut();
-    openssl_try!(EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA, EVP_PKEY_OP_SIGN, EVP_PKEY_CTRL_GET_RSA_PADDING, 0, &mut padding as *mut _ as *mut c_void));
-    openssl_try!(EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA, EVP_PKEY_OP_SIGN, EVP_PKEY_CTRL_GET_MD, 0, &mut md as *mut _ as *mut c_void));
-    if md == ptr::null_mut() { panic!("md not available"); }
-    let md_type = EVP_MD_type(md);
-    alg = match (padding, md_type) {
-      (RSA_PKCS1_PADDING, NID_sha256) => "RSASSA_PKCS1_V1_5_SHA_256".to_string(),
-      (RSA_PKCS1_PADDING, NID_sha384) => "RSASSA_PKCS1_V1_5_SHA_384".to_string(),
-      (RSA_PKCS1_PADDING, NID_sha512) => "RSASSA_PKCS1_V1_5_SHA_512".to_string(),
-      (RSA_PKCS1_PSS_PADDING, NID_sha256) => "RSASSA_PSS_SHA_256".to_string(),
-      (RSA_PKCS1_PSS_PADDING, NID_sha384) => "RSASSA_PSS_SHA_384".to_string(),
-      (RSA_PKCS1_PSS_PADDING, NID_sha512) => "RSASSA_PSS_SHA_512".to_string(),
-      _ => panic!("unsupported padding or md: {} {}", padding, md_type)
-    };
-  }
+  let alg = unsafe { get_alg(ctx) };
   let req = rusoto_kms::SignRequest {
     message: Bytes::from(message),
     message_type: Some("DIGEST".to_string()),
@@ -220,38 +229,21 @@ extern fn rsa_sign(ctx: EVP_PKEY_CTX, sig: *mut c_uchar, siglen: *mut usize, tbs
   return 1;
 }
 
-extern fn rsa_verify_init(_ctx: EVP_PKEY_CTX) -> c_int {
+extern fn kms_verify_init(_ctx: EVP_PKEY_CTX) -> c_int {
   println!("verify init!");
   return 1;
 }
 
-extern fn rsa_verify(ctx: EVP_PKEY_CTX, sig: *const c_uchar, siglen: usize, tbs: *const c_uchar, tbslen: usize) -> c_int {
+extern fn kms_verify(ctx: EVP_PKEY_CTX, sig: *const c_uchar, siglen: usize, tbs: *const c_uchar, tbslen: usize) -> c_int {
   println!("verify!");
   let message = unsafe { from_buf_raw(tbs, tbslen) };
   let signature = unsafe { from_buf_raw(sig, siglen) };
-  let rsa = unsafe { EVP_PKEY_get1_RSA(EVP_PKEY_CTX_get0_pkey(ctx)) };
+  let pkey = unsafe { EVP_PKEY_CTX_get0_pkey(ctx) };
   let keys = KEYS.lock().unwrap();
-  let key_info = keys.get(&(rsa as usize)).expect("could not find key info");
+  let key_info = keys.get(&(pkey as usize)).expect("could not find key info");
   if key_info.usage != KeyUsage::SignVerify { panic!("key not usage does not allow sign"); }
   let key_id = &key_info.key_id;
-  let alg;
-  unsafe {
-    let mut padding : c_int = 0;
-    let mut md : EVP_MD = ptr::null_mut();
-    openssl_try!(EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA, EVP_PKEY_OP_VERIFY, EVP_PKEY_CTRL_GET_RSA_PADDING, 0, &mut padding as *mut _ as *mut c_void));
-    openssl_try!(EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA, EVP_PKEY_OP_VERIFY, EVP_PKEY_CTRL_GET_MD, 0, &mut md as *mut _ as *mut c_void));
-    if md == ptr::null_mut() { panic!("md not available"); }
-    let md_type = EVP_MD_type(md);
-    alg = match (padding, md_type) {
-      (RSA_PKCS1_PADDING, NID_sha256) => "RSASSA_PKCS1_V1_5_SHA_256".to_string(),
-      (RSA_PKCS1_PADDING, NID_sha384) => "RSASSA_PKCS1_V1_5_SHA_384".to_string(),
-      (RSA_PKCS1_PADDING, NID_sha512) => "RSASSA_PKCS1_V1_5_SHA_512".to_string(),
-      (RSA_PKCS1_PSS_PADDING, NID_sha256) => "RSASSA_PSS_SHA_256".to_string(),
-      (RSA_PKCS1_PSS_PADDING, NID_sha384) => "RSASSA_PSS_SHA_384".to_string(),
-      (RSA_PKCS1_PSS_PADDING, NID_sha512) => "RSASSA_PSS_SHA_512".to_string(),
-      _ => panic!("unsupported padding or md: {} {}", padding, md_type)
-    };
-  }
+  let alg = unsafe { get_alg(ctx) };
   let req = rusoto_kms::VerifyRequest {
     signature: Bytes::from(signature),
     message: Bytes::from(message),
@@ -266,33 +258,20 @@ extern fn rsa_verify(ctx: EVP_PKEY_CTX, sig: *const c_uchar, siglen: usize, tbs:
   return 1;
 }
 
-extern fn rsa_encrypt_init(_ctx: EVP_PKEY_CTX) -> c_int {
+extern fn kms_encrypt_init(_ctx: EVP_PKEY_CTX) -> c_int {
   println!("encrypt init!");
   return 1;
 }
 
-extern fn rsa_encrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, in_: *const c_uchar, inlen: c_int) -> c_int {
+extern fn kms_encrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, in_: *const c_uchar, inlen: c_int) -> c_int {
   println!("encrypt!");
   let plaintext = unsafe { from_buf_raw(in_, inlen as usize) };
-  let rsa = unsafe { EVP_PKEY_get1_RSA(EVP_PKEY_CTX_get0_pkey(ctx)) };
+  let pkey = unsafe { EVP_PKEY_CTX_get0_pkey(ctx) };
   let keys = KEYS.lock().unwrap();
-  let key_info = keys.get(&(rsa as usize)).expect("could not find key info");
+  let key_info = keys.get(&(pkey as usize)).expect("could not find key info");
   if key_info.usage != KeyUsage::EncryptDecrypt { panic!("key not usage does not allow encrypt"); }
   let key_id = &key_info.key_id;
-  let alg;
-  unsafe {
-    let mut padding : c_int = 0;
-    let mut md : EVP_MD = ptr::null_mut();
-    openssl_try!(EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA, EVP_PKEY_OP_ENCRYPT, EVP_PKEY_CTRL_GET_RSA_PADDING, 0, &mut padding as *mut _ as *mut c_void));
-    openssl_try!(EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA, EVP_PKEY_OP_ENCRYPT, EVP_PKEY_CTRL_GET_RSA_OAEP_MD, 0, &mut md as *mut _ as *mut c_void));
-    if md == ptr::null_mut() { panic!("md not available"); }
-    let md_type = EVP_MD_type(md);
-    alg = match (padding, md_type) {
-      (RSA_PKCS1_OAEP_PADDING, NID_sha1) => Some("RSAES_OAEP_SHA_1".to_string()),
-      (RSA_PKCS1_OAEP_PADDING, NID_sha256) => Some("RSAES_OAEP_SHA_256".to_string()),
-      _ => panic!("unsupported padding or md")
-    };
-  }
+  let alg = unsafe { get_alg(ctx) };
   let req = rusoto_kms::EncryptRequest {
     plaintext: Bytes::from(plaintext),
     encryption_algorithm: alg,
@@ -310,33 +289,20 @@ extern fn rsa_encrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, 
   return 1;
 }
 
-extern fn rsa_decrypt_init(_ctx: EVP_PKEY_CTX) -> c_int {
+extern fn kms_decrypt_init(_ctx: EVP_PKEY_CTX) -> c_int {
   println!("decrypt init!");
   return 1;
 }
 
-extern fn rsa_decrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, in_: *const c_uchar, inlen: c_int) -> c_int {
+extern fn kms_decrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, in_: *const c_uchar, inlen: c_int) -> c_int {
   println!("decrypt!");
   let ciphertext = unsafe { from_buf_raw(in_, inlen as usize) };
-  let rsa = unsafe { EVP_PKEY_get1_RSA(EVP_PKEY_CTX_get0_pkey(ctx)) };
+  let pkey = unsafe { EVP_PKEY_CTX_get0_pkey(ctx) };
   let keys = KEYS.lock().unwrap();
-  let key_info = keys.get(&(rsa as usize)).expect("could not find key info");
+  let key_info = keys.get(&(pkey as usize)).expect("could not find key info");
   if key_info.usage != KeyUsage::EncryptDecrypt { panic!("key not usage does not allow decrypt"); }
   let key_id = &key_info.key_id;
-  let alg;
-  unsafe {
-    let mut padding : c_int = 0;
-    let mut md : EVP_MD = ptr::null_mut();
-    openssl_try!(EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA, EVP_PKEY_OP_DECRYPT, EVP_PKEY_CTRL_GET_RSA_PADDING, 0, &mut padding as *mut _ as *mut c_void));
-    openssl_try!(EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_RSA, EVP_PKEY_OP_DECRYPT, EVP_PKEY_CTRL_GET_RSA_OAEP_MD, 0, &mut md as *mut _ as *mut c_void));
-    if md == ptr::null_mut() { panic!("md not available"); }
-    let md_type = EVP_MD_type(md);
-    alg = match (padding, md_type) {
-      (RSA_PKCS1_OAEP_PADDING, NID_sha1) => Some("RSAES_OAEP_SHA_1".to_string()),
-      (RSA_PKCS1_OAEP_PADDING, NID_sha256) => Some("RSAES_OAEP_SHA_256".to_string()),
-      _ => panic!("unsupported padding or md")
-    };
-  }
+  let alg = unsafe { get_alg(ctx) };
   let req = rusoto_kms::DecryptRequest {
     ciphertext_blob: Bytes::from(ciphertext),
     encryption_algorithm: alg,
@@ -364,19 +330,29 @@ extern fn pkey_meths(_e: ENGINE, pmeth: *mut EVP_PKEY_METHOD, nids: *mut *const 
       let pkey_meth = EVP_PKEY_meth_new(EVP_PKEY_RSA, EVP_PKEY_FLAG_AUTOARGLEN);
       let orig_meth = EVP_PKEY_meth_find(EVP_PKEY_RSA);
       EVP_PKEY_meth_copy(pkey_meth, orig_meth);
-      EVP_PKEY_meth_set_sign(pkey_meth, rsa_sign_init, rsa_sign);
-      EVP_PKEY_meth_set_verify(pkey_meth, rsa_verify_init, rsa_verify);
-      EVP_PKEY_meth_set_encrypt(pkey_meth, rsa_encrypt_init, rsa_encrypt);
-      EVP_PKEY_meth_set_decrypt(pkey_meth, rsa_decrypt_init, rsa_decrypt);
+      EVP_PKEY_meth_set_sign(pkey_meth, kms_sign_init, kms_sign);
+      EVP_PKEY_meth_set_verify(pkey_meth, kms_verify_init, kms_verify);
+      EVP_PKEY_meth_set_encrypt(pkey_meth, kms_encrypt_init, kms_encrypt);
+      EVP_PKEY_meth_set_decrypt(pkey_meth, kms_decrypt_init, kms_decrypt);
       *pmeth = pkey_meth;
     }
     return 1;
   } else if nid == EVP_PKEY_EC {
     println!("want ec");
+    unsafe {
+      let pkey_meth = EVP_PKEY_meth_new(EVP_PKEY_EC, EVP_PKEY_FLAG_AUTOARGLEN);
+      let orig_meth = EVP_PKEY_meth_find(EVP_PKEY_EC);
+      EVP_PKEY_meth_copy(pkey_meth, orig_meth);
+      EVP_PKEY_meth_set_sign(pkey_meth, kms_sign_init, kms_sign);
+      EVP_PKEY_meth_set_verify(pkey_meth, kms_verify_init, kms_verify);
+      EVP_PKEY_meth_set_encrypt(pkey_meth, kms_encrypt_init, kms_encrypt);
+      EVP_PKEY_meth_set_decrypt(pkey_meth, kms_decrypt_init, kms_decrypt);
+      *pmeth = pkey_meth;
+    }
+    return 1;
   } else {
     panic!("aiee");
   }
-  return 0;
 }
 
 extern fn load_privkey(_e: ENGINE, key_id: *const c_char, _ui_method: *mut c_void, _callback_data: *mut c_void) -> EVP_PKEY {
@@ -402,8 +378,7 @@ extern fn load_privkey(_e: ENGINE, key_id: *const c_char, _ui_method: *mut c_voi
     let key_bio = BIO_new_mem_buf(bytes.as_ptr() as *const c_void, bytes.len() as c_int);
     let pubkey = d2i_PUBKEY_bio(key_bio, std::ptr::null_mut());
     println!("bits: {}", EVP_PKEY_bits(pubkey));
-    let rsa = EVP_PKEY_get1_RSA(pubkey);
-    KEYS.lock().unwrap().insert(rsa as usize, key_info);
+    KEYS.lock().unwrap().insert(pubkey as usize, key_info);
     //let rsa = RSA_new();
     // RSA_set_method
     //openssl_try!(EVP_PKEY_assign(key, EVP_PKEY_RSA, rsa));
