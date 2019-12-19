@@ -124,22 +124,9 @@ static RAND_METH : rand_meth_st = rand_meth_st {
   status: Some(rand_status)
 };
 
-#[derive(Debug, PartialEq)]
-enum KeyUsage {
-  None,
-  SignVerify,
-  EncryptDecrypt
-}
-
-#[derive(Debug)]
-struct KeyInfo {
-  usage: KeyUsage,
-  key_id: String
-}
-
 lazy_static! {
   static ref KMS_CLIENT : KmsClient = KmsClient::new(Region::EuWest1);
-  static ref KEYS : Mutex<HashMap<usize, KeyInfo>> = Mutex::new(HashMap::new());
+  static ref KEYS : Mutex<HashMap<usize, String>> = Mutex::new(HashMap::new());
 }
 
 // implementation functions
@@ -199,17 +186,14 @@ extern fn kms_sign(ctx: EVP_PKEY_CTX, sig: *mut c_uchar, siglen: *mut usize, tbs
   println!("sign!");
   let message = unsafe { from_buf_raw(tbs, tbslen) };
   let pkey = unsafe { EVP_PKEY_CTX_get0_pkey(ctx) };
-  let keys = KEYS.lock().unwrap();
-  let key_info = keys.get(&(pkey as usize)).expect("could not find key info");
-  if key_info.usage != KeyUsage::SignVerify { panic!("key not usage does not allow sign"); }
-  let key_id = &key_info.key_id;
+  let key_id = KEYS.lock().unwrap().get(&(pkey as usize)).expect("could not find key info").to_string();
   let alg = unsafe { get_alg(ctx) };
   let req = rusoto_kms::SignRequest {
     message: Bytes::from(message),
     message_type: Some("DIGEST".to_string()),
     signing_algorithm: alg.to_string(),
     grant_tokens: None,
-    key_id: key_id.to_string()
+    key_id: key_id
   };
   let output = KMS_CLIENT.sign(req).sync().expect("kms sign failed");
   let bytes = output.signature.expect("signature was not returned");
@@ -231,10 +215,7 @@ extern fn kms_verify(ctx: EVP_PKEY_CTX, sig: *const c_uchar, siglen: usize, tbs:
   let message = unsafe { from_buf_raw(tbs, tbslen) };
   let signature = unsafe { from_buf_raw(sig, siglen) };
   let pkey = unsafe { EVP_PKEY_CTX_get0_pkey(ctx) };
-  let keys = KEYS.lock().unwrap();
-  let key_info = keys.get(&(pkey as usize)).expect("could not find key info");
-  if key_info.usage != KeyUsage::SignVerify { panic!("key not usage does not allow sign"); }
-  let key_id = &key_info.key_id;
+  let key_id = KEYS.lock().unwrap().get(&(pkey as usize)).expect("could not find key info").to_string();
   let alg = unsafe { get_alg(ctx) };
   let req = rusoto_kms::VerifyRequest {
     signature: Bytes::from(signature),
@@ -242,7 +223,7 @@ extern fn kms_verify(ctx: EVP_PKEY_CTX, sig: *const c_uchar, siglen: usize, tbs:
     message_type: Some("DIGEST".to_string()),
     signing_algorithm: alg.to_string(),
     grant_tokens: None,
-    key_id: key_id.to_string()
+    key_id: key_id
   };
   let output = KMS_CLIENT.verify(req).sync().expect("kms verify failed");
   // FIXME: invalid signatures reported as KMSInvalidSignatureException
@@ -259,17 +240,14 @@ extern fn kms_encrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, 
   println!("encrypt!");
   let plaintext = unsafe { from_buf_raw(in_, inlen as usize) };
   let pkey = unsafe { EVP_PKEY_CTX_get0_pkey(ctx) };
-  let keys = KEYS.lock().unwrap();
-  let key_info = keys.get(&(pkey as usize)).expect("could not find key info");
-  if key_info.usage != KeyUsage::EncryptDecrypt { panic!("key not usage does not allow encrypt"); }
-  let key_id = &key_info.key_id;
+  let key_id = KEYS.lock().unwrap().get(&(pkey as usize)).expect("could not find key info").to_string();
   let alg = unsafe { get_alg(ctx) };
   let req = rusoto_kms::EncryptRequest {
     plaintext: Bytes::from(plaintext),
     encryption_algorithm: Some(alg.to_string()),
     encryption_context: None,
     grant_tokens: None,
-    key_id: key_id.to_string()
+    key_id: key_id
   };
   let output = KMS_CLIENT.encrypt(req).sync().expect("kms encrypt failed");
   let bytes = output.ciphertext_blob.expect("ciphertext was not returned");
@@ -290,17 +268,14 @@ extern fn kms_decrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, 
   println!("decrypt!");
   let ciphertext = unsafe { from_buf_raw(in_, inlen as usize) };
   let pkey = unsafe { EVP_PKEY_CTX_get0_pkey(ctx) };
-  let keys = KEYS.lock().unwrap();
-  let key_info = keys.get(&(pkey as usize)).expect("could not find key info");
-  if key_info.usage != KeyUsage::EncryptDecrypt { panic!("key not usage does not allow decrypt"); }
-  let key_id = &key_info.key_id;
+  let key_id = KEYS.lock().unwrap().get(&(pkey as usize)).expect("could not find key info").to_string();
   let alg = unsafe { get_alg(ctx) };
   let req = rusoto_kms::DecryptRequest {
     ciphertext_blob: Bytes::from(ciphertext),
     encryption_algorithm: Some(alg.to_string()),
     encryption_context: None,
     grant_tokens: None,
-    key_id: Some(key_id.to_string())
+    key_id: Some(key_id)
   };
   let output = KMS_CLIENT.decrypt(req).sync().expect("kms decrypt failed");
   let bytes = output.plaintext.expect("plaintext was not returned");
@@ -356,20 +331,10 @@ extern fn load_privkey(_e: ENGINE, key_id: *const c_char, _ui_method: *mut c_voi
   };
   let output = KMS_CLIENT.get_public_key(req).sync().expect("kms get public key failed");
   let bytes = output.public_key.expect("public key not returned");
-  let key_info = KeyInfo {
-    usage: match output.key_usage.unwrap_or("NONE".to_string()).as_str() {
-      "NONE" => KeyUsage::None,
-      "SIGN_VERIFY" => KeyUsage::SignVerify,
-      "ENCRYPT_DECRYPT" => KeyUsage::EncryptDecrypt,
-      _ => panic!("aiee")
-    },
-    key_id: key_id.to_string()
-  };
-  println!("key_info: {:?}", &key_info);
   unsafe {
     let key_bio = BIO_new_mem_buf(bytes.as_ptr() as *const c_void, bytes.len() as c_int);
     let pubkey = d2i_PUBKEY_bio(key_bio, std::ptr::null_mut());
-    KEYS.lock().unwrap().insert(pubkey as usize, key_info);
+    KEYS.lock().unwrap().insert(pubkey as usize, key_id.to_string());
     //let rsa = RSA_new();
     // RSA_set_method
     //openssl_try!(EVP_PKEY_assign(key, EVP_PKEY_RSA, rsa));
