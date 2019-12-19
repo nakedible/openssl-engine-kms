@@ -53,11 +53,6 @@ const EVP_PKEY_ALG_CTRL : c_int = 0x1000;
 const EVP_PKEY_CTRL_GET_MD : c_int = 13;
 const EVP_PKEY_CTRL_GET_RSA_PADDING : c_int = EVP_PKEY_ALG_CTRL + 6;
 const EVP_PKEY_CTRL_GET_RSA_OAEP_MD : c_int = EVP_PKEY_ALG_CTRL + 11;
-const EVP_PKEY_CTRL_GET_EC_KDF_MD : c_int = EVP_PKEY_ALG_CTRL + 6;
-const EVP_PKEY_OP_SIGN : c_int = 1<<3;
-const EVP_PKEY_OP_VERIFY : c_int = 1<<4;
-const EVP_PKEY_OP_ENCRYPT : c_int = 1<<8;
-const EVP_PKEY_OP_DECRYPT : c_int = 1<<9;
 
 static SUPPORTED_EVP_NIDS : [c_int; 2] = [EVP_PKEY_RSA, EVP_PKEY_EC];
 
@@ -66,7 +61,6 @@ type EVP_PKEY = *mut c_void;
 type EVP_PKEY_METHOD = *mut c_void;
 type EVP_PKEY_CTX = *mut c_void;
 type EVP_MD = *mut c_void;
-type RSA = *mut c_void;
 type BIO = *mut c_void;
 
 #[repr(C)]
@@ -103,8 +97,6 @@ extern {
   fn ENGINE_set_load_privkey_function(e: ENGINE, loadpriv_f: extern fn(ENGINE, *const c_char, *mut c_void, *mut c_void) -> EVP_PKEY) -> c_int;
   fn ENGINE_set_load_pubkey_function(e: ENGINE, loadpub_f: extern fn(ENGINE, *const c_char, *mut c_void, *mut c_void) -> EVP_PKEY) -> c_int;
   fn EVP_PKEY_base_id(pkey: EVP_PKEY) -> c_int;
-  fn EVP_PKEY_get1_RSA(pkey: EVP_PKEY) -> RSA;
-  fn EVP_PKEY_bits(pkey: EVP_PKEY) -> c_int;
   fn EVP_PKEY_meth_new(id: c_int, flags: c_int) -> EVP_PKEY_METHOD;
   fn EVP_PKEY_meth_copy(dst: EVP_PKEY_METHOD, src: EVP_PKEY_METHOD);
   fn EVP_PKEY_meth_find(typ: c_int) -> EVP_PKEY_METHOD;
@@ -377,7 +369,6 @@ extern fn load_privkey(_e: ENGINE, key_id: *const c_char, _ui_method: *mut c_voi
   unsafe {
     let key_bio = BIO_new_mem_buf(bytes.as_ptr() as *const c_void, bytes.len() as c_int);
     let pubkey = d2i_PUBKEY_bio(key_bio, std::ptr::null_mut());
-    println!("bits: {}", EVP_PKEY_bits(pubkey));
     KEYS.lock().unwrap().insert(pubkey as usize, key_info);
     //let rsa = RSA_new();
     // RSA_set_method
