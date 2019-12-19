@@ -154,6 +154,11 @@ unsafe fn get_alg(ctx: EVP_PKEY_CTX) -> &'static str {
   }
 }
 
+unsafe fn get_key_id(ctx: EVP_PKEY_CTX) -> String {
+  let pkey = EVP_PKEY_CTX_get0_pkey(ctx);
+  KEYS.lock().unwrap().get(&(pkey as usize)).expect("could not find key info").to_string()
+}
+
 extern fn kms_init(_e: ENGINE) -> c_int {
   println!("kms_init");
   return 1;
@@ -185,8 +190,7 @@ extern fn kms_sign_init(_ctx: EVP_PKEY_CTX) -> c_int {
 extern fn kms_sign(ctx: EVP_PKEY_CTX, sig: *mut c_uchar, siglen: *mut usize, tbs: *const c_uchar, tbslen: usize) -> c_int {
   println!("sign!");
   let message = unsafe { from_buf_raw(tbs, tbslen) };
-  let pkey = unsafe { EVP_PKEY_CTX_get0_pkey(ctx) };
-  let key_id = KEYS.lock().unwrap().get(&(pkey as usize)).expect("could not find key info").to_string();
+  let key_id = unsafe { get_key_id(ctx) };
   let alg = unsafe { get_alg(ctx) };
   let req = rusoto_kms::SignRequest {
     message: Bytes::from(message),
@@ -214,16 +218,15 @@ extern fn kms_verify(ctx: EVP_PKEY_CTX, sig: *const c_uchar, siglen: usize, tbs:
   println!("verify!");
   let message = unsafe { from_buf_raw(tbs, tbslen) };
   let signature = unsafe { from_buf_raw(sig, siglen) };
-  let pkey = unsafe { EVP_PKEY_CTX_get0_pkey(ctx) };
-  let key_id = KEYS.lock().unwrap().get(&(pkey as usize)).expect("could not find key info").to_string();
+  let key_id = unsafe { get_key_id(ctx) };
   let alg = unsafe { get_alg(ctx) };
   let req = rusoto_kms::VerifyRequest {
+    key_id: key_id,
     signature: Bytes::from(signature),
     message: Bytes::from(message),
     message_type: Some("DIGEST".to_string()),
     signing_algorithm: alg.to_string(),
-    grant_tokens: None,
-    key_id: key_id
+    grant_tokens: None
   };
   let output = KMS_CLIENT.verify(req).sync().expect("kms verify failed");
   // FIXME: invalid signatures reported as KMSInvalidSignatureException
@@ -239,15 +242,14 @@ extern fn kms_encrypt_init(_ctx: EVP_PKEY_CTX) -> c_int {
 extern fn kms_encrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, in_: *const c_uchar, inlen: c_int) -> c_int {
   println!("encrypt!");
   let plaintext = unsafe { from_buf_raw(in_, inlen as usize) };
-  let pkey = unsafe { EVP_PKEY_CTX_get0_pkey(ctx) };
-  let key_id = KEYS.lock().unwrap().get(&(pkey as usize)).expect("could not find key info").to_string();
+  let key_id = unsafe { get_key_id(ctx) };
   let alg = unsafe { get_alg(ctx) };
   let req = rusoto_kms::EncryptRequest {
+    key_id: key_id,
     plaintext: Bytes::from(plaintext),
     encryption_algorithm: Some(alg.to_string()),
     encryption_context: None,
-    grant_tokens: None,
-    key_id: key_id
+    grant_tokens: None
   };
   let output = KMS_CLIENT.encrypt(req).sync().expect("kms encrypt failed");
   let bytes = output.ciphertext_blob.expect("ciphertext was not returned");
@@ -267,15 +269,14 @@ extern fn kms_decrypt_init(_ctx: EVP_PKEY_CTX) -> c_int {
 extern fn kms_decrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, in_: *const c_uchar, inlen: c_int) -> c_int {
   println!("decrypt!");
   let ciphertext = unsafe { from_buf_raw(in_, inlen as usize) };
-  let pkey = unsafe { EVP_PKEY_CTX_get0_pkey(ctx) };
-  let key_id = KEYS.lock().unwrap().get(&(pkey as usize)).expect("could not find key info").to_string();
+  let key_id = unsafe { get_key_id(ctx) };
   let alg = unsafe { get_alg(ctx) };
   let req = rusoto_kms::DecryptRequest {
+    key_id: Some(key_id),
     ciphertext_blob: Bytes::from(ciphertext),
     encryption_algorithm: Some(alg.to_string()),
     encryption_context: None,
-    grant_tokens: None,
-    key_id: Some(key_id)
+    grant_tokens: None
   };
   let output = KMS_CLIENT.decrypt(req).sync().expect("kms decrypt failed");
   let bytes = output.plaintext.expect("plaintext was not returned");
@@ -291,24 +292,10 @@ extern fn pkey_meths(_e: ENGINE, pmeth: *mut EVP_PKEY_METHOD, nids: *mut *const 
   if pmeth == ptr::null_mut() {
     unsafe { *nids = SUPPORTED_EVP_NIDS.as_ptr(); }
     return SUPPORTED_EVP_NIDS.len() as c_int;
-  } else if nid == EVP_PKEY_RSA {
-    println!("want rsa");
+  } else if nid == EVP_PKEY_RSA || nid == EVP_PKEY_EC {
     unsafe {
-      let pkey_meth = EVP_PKEY_meth_new(EVP_PKEY_RSA, EVP_PKEY_FLAG_AUTOARGLEN);
-      let orig_meth = EVP_PKEY_meth_find(EVP_PKEY_RSA);
-      EVP_PKEY_meth_copy(pkey_meth, orig_meth);
-      EVP_PKEY_meth_set_sign(pkey_meth, kms_sign_init, kms_sign);
-      EVP_PKEY_meth_set_verify(pkey_meth, kms_verify_init, kms_verify);
-      EVP_PKEY_meth_set_encrypt(pkey_meth, kms_encrypt_init, kms_encrypt);
-      EVP_PKEY_meth_set_decrypt(pkey_meth, kms_decrypt_init, kms_decrypt);
-      *pmeth = pkey_meth;
-    }
-    return 1;
-  } else if nid == EVP_PKEY_EC {
-    println!("want ec");
-    unsafe {
-      let pkey_meth = EVP_PKEY_meth_new(EVP_PKEY_EC, EVP_PKEY_FLAG_AUTOARGLEN);
-      let orig_meth = EVP_PKEY_meth_find(EVP_PKEY_EC);
+      let pkey_meth = openssl_try!(EVP_PKEY_meth_new(nid, EVP_PKEY_FLAG_AUTOARGLEN), ptr::null_mut());
+      let orig_meth = openssl_try!(EVP_PKEY_meth_find(nid), ptr::null_mut());
       EVP_PKEY_meth_copy(pkey_meth, orig_meth);
       EVP_PKEY_meth_set_sign(pkey_meth, kms_sign_init, kms_sign);
       EVP_PKEY_meth_set_verify(pkey_meth, kms_verify_init, kms_verify);
@@ -318,18 +305,22 @@ extern fn pkey_meths(_e: ENGINE, pmeth: *mut EVP_PKEY_METHOD, nids: *mut *const 
     }
     return 1;
   } else {
-    panic!("aiee");
+    return 0;
   }
 }
 
 extern fn load_key(_e: ENGINE, key_id: *const c_char, _ui_method: *mut c_void, _callback_data: *mut c_void) -> EVP_PKEY {
   let key_id = unsafe { std::ffi::CStr::from_ptr(key_id).to_str().unwrap() };
   let req = rusoto_kms::GetPublicKeyRequest {
-    grant_tokens: None,
-    key_id: key_id.to_string()
+    key_id: key_id.to_string(),
+    grant_tokens: None
   };
-  let output = KMS_CLIENT.get_public_key(req).sync().expect("kms get public key failed");
-  let bytes = output.public_key.expect("public key not returned");
+  let output = KMS_CLIENT.get_public_key(req).sync();
+  if output.is_err() {
+    println!("load key err: {}", output.unwrap_err());
+    return ptr::null_mut();
+  }
+  let bytes = output.unwrap().public_key.expect("public key not returned");
   unsafe {
     let key_bio = BIO_new_mem_buf(bytes.as_ptr() as *const c_void, bytes.len() as c_int);
     let pubkey = d2i_PUBKEY_bio(key_bio, std::ptr::null_mut());
