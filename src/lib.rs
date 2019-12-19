@@ -335,13 +335,6 @@ extern fn load_privkey(_e: ENGINE, key_id: *const c_char, _ui_method: *mut c_voi
     let key_bio = BIO_new_mem_buf(bytes.as_ptr() as *const c_void, bytes.len() as c_int);
     let pubkey = d2i_PUBKEY_bio(key_bio, std::ptr::null_mut());
     KEYS.lock().unwrap().insert(pubkey as usize, key_id.to_string());
-    //let rsa = RSA_new();
-    // RSA_set_method
-    //openssl_try!(EVP_PKEY_assign(key, EVP_PKEY_RSA, rsa));
-    // RSA_set_app_data
-    // RSA_set0_key
-    // RSA_set0_factors
-    // RSA_set0_crt_params
     return pubkey;
   }
 }
