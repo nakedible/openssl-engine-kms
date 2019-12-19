@@ -151,7 +151,7 @@ lazy_static! {
 }
 
 // implementation functions
-unsafe fn get_alg(ctx: EVP_PKEY_CTX) -> String {
+unsafe fn get_alg(ctx: EVP_PKEY_CTX) -> &'static str {
   let mut padding : c_int = 0;
   let mut md : EVP_MD = ptr::null_mut();
   let key_type = EVP_PKEY_base_id(EVP_PKEY_CTX_get0_pkey(ctx));
@@ -160,17 +160,17 @@ unsafe fn get_alg(ctx: EVP_PKEY_CTX) -> String {
   if md == ptr::null_mut() { panic!("md not available"); }
   let md_type = EVP_MD_type(md);
   match (key_type, padding, md_type) {
-    (EVP_PKEY_RSA, RSA_PKCS1_PADDING, NID_sha256) => "RSASSA_PKCS1_V1_5_SHA_256".to_string(),
-    (EVP_PKEY_RSA, RSA_PKCS1_PADDING, NID_sha384) => "RSASSA_PKCS1_V1_5_SHA_384".to_string(),
-    (EVP_PKEY_RSA, RSA_PKCS1_PADDING, NID_sha512) => "RSASSA_PKCS1_V1_5_SHA_512".to_string(),
-    (EVP_PKEY_RSA, RSA_PKCS1_PSS_PADDING, NID_sha256) => "RSASSA_PSS_SHA_256".to_string(),
-    (EVP_PKEY_RSA, RSA_PKCS1_PSS_PADDING, NID_sha384) => "RSASSA_PSS_SHA_384".to_string(),
-    (EVP_PKEY_RSA, RSA_PKCS1_PSS_PADDING, NID_sha512) => "RSASSA_PSS_SHA_512".to_string(),
-    (EVP_PKEY_RSA, RSA_PKCS1_OAEP_PADDING, NID_sha1) => "RSAES_OAEP_SHA_1".to_string(),
-    (EVP_PKEY_RSA, RSA_PKCS1_OAEP_PADDING, NID_sha256) => "RSAES_OAEP_SHA_256".to_string(),
-    (EVP_PKEY_EC, _, NID_sha256) => "ECDSA_SHA_256".to_string(),
-    (EVP_PKEY_EC, _, NID_sha384) => "ECDSA_SHA_384".to_string(),
-    (EVP_PKEY_EC, _, NID_sha512) => "ECDSA_SHA_512".to_string(),
+    (EVP_PKEY_RSA, RSA_PKCS1_PADDING, NID_sha256) => "RSASSA_PKCS1_V1_5_SHA_256",
+    (EVP_PKEY_RSA, RSA_PKCS1_PADDING, NID_sha384) => "RSASSA_PKCS1_V1_5_SHA_384",
+    (EVP_PKEY_RSA, RSA_PKCS1_PADDING, NID_sha512) => "RSASSA_PKCS1_V1_5_SHA_512",
+    (EVP_PKEY_RSA, RSA_PKCS1_PSS_PADDING, NID_sha256) => "RSASSA_PSS_SHA_256",
+    (EVP_PKEY_RSA, RSA_PKCS1_PSS_PADDING, NID_sha384) => "RSASSA_PSS_SHA_384",
+    (EVP_PKEY_RSA, RSA_PKCS1_PSS_PADDING, NID_sha512) => "RSASSA_PSS_SHA_512",
+    (EVP_PKEY_RSA, RSA_PKCS1_OAEP_PADDING, NID_sha1) => "RSAES_OAEP_SHA_1",
+    (EVP_PKEY_RSA, RSA_PKCS1_OAEP_PADDING, NID_sha256) => "RSAES_OAEP_SHA_256",
+    (EVP_PKEY_EC, _, NID_sha256) => "ECDSA_SHA_256",
+    (EVP_PKEY_EC, _, NID_sha384) => "ECDSA_SHA_384",
+    (EVP_PKEY_EC, _, NID_sha512) => "ECDSA_SHA_512",
     _ => panic!("unsupported padding or md: {} {}", padding, md_type)
   }
 }
@@ -215,7 +215,7 @@ extern fn kms_sign(ctx: EVP_PKEY_CTX, sig: *mut c_uchar, siglen: *mut usize, tbs
   let req = rusoto_kms::SignRequest {
     message: Bytes::from(message),
     message_type: Some("DIGEST".to_string()),
-    signing_algorithm: alg,
+    signing_algorithm: alg.to_string(),
     grant_tokens: None,
     key_id: key_id.to_string()
   };
@@ -248,7 +248,7 @@ extern fn kms_verify(ctx: EVP_PKEY_CTX, sig: *const c_uchar, siglen: usize, tbs:
     signature: Bytes::from(signature),
     message: Bytes::from(message),
     message_type: Some("DIGEST".to_string()),
-    signing_algorithm: alg,
+    signing_algorithm: alg.to_string(),
     grant_tokens: None,
     key_id: key_id.to_string()
   };
@@ -274,7 +274,7 @@ extern fn kms_encrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, 
   let alg = unsafe { get_alg(ctx) };
   let req = rusoto_kms::EncryptRequest {
     plaintext: Bytes::from(plaintext),
-    encryption_algorithm: alg,
+    encryption_algorithm: Some(alg.to_string()),
     encryption_context: None,
     grant_tokens: None,
     key_id: key_id.to_string()
@@ -305,7 +305,7 @@ extern fn kms_decrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, 
   let alg = unsafe { get_alg(ctx) };
   let req = rusoto_kms::DecryptRequest {
     ciphertext_blob: Bytes::from(ciphertext),
-    encryption_algorithm: alg,
+    encryption_algorithm: Some(alg.to_string()),
     encryption_context: None,
     grant_tokens: None,
     key_id: Some(key_id.to_string())
