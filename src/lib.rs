@@ -3,7 +3,7 @@ extern crate libc;
 use std::ptr;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use libc::{c_void, c_char, c_uchar, c_int, c_uint, c_long, c_ulong, c_double};
+use libc::{c_void, c_char, c_uchar, c_int, c_ulong, c_double};
 use rusoto_core::Region;
 use rusoto_kms::{Kms, KmsClient};
 use bytes::Bytes;
