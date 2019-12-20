@@ -11,6 +11,10 @@ use bytes::Bytes;
 #[macro_use]
 extern crate lazy_static;
 
+#[macro_use]
+extern crate log;
+extern crate env_logger;
+
 macro_rules! openssl_try {
   ($e:expr) => ({
     openssl_try!($e, 0);
@@ -160,18 +164,19 @@ unsafe fn get_key_id(ctx: EVP_PKEY_CTX) -> String {
 }
 
 extern fn kms_init(_e: ENGINE) -> c_int {
-  println!("kms_init");
+  env_logger::init_from_env("OPENSSL_ENGINE_KMS_LOG");
+  debug!("kms_init");
   return 1;
 }
 
 extern fn rand_bytes(buf: *mut c_uchar, num: c_int) -> c_int {
+  trace!("rand_bytes");
   let req = rusoto_kms::GenerateRandomRequest {
     custom_key_store_id: None,
     number_of_bytes: Some(num.into())
   };
   let output = KMS_CLIENT.generate_random(req).sync().expect("kms generate_random failed");
   let bytes = output.plaintext.expect("plaintext was not returned");
-  println!("FIXME DEBUG bytes: {:?}", bytes);
   unsafe {
     buf.copy_from(bytes.as_ptr(), num as usize);
   }
@@ -187,7 +192,7 @@ extern fn kms_common_init(_ctx: EVP_PKEY_CTX) -> c_int {
 }
 
 extern fn kms_sign(ctx: EVP_PKEY_CTX, sig: *mut c_uchar, siglen: *mut usize, tbs: *const c_uchar, tbslen: usize) -> c_int {
-  println!("sign!");
+  trace!("kms_sign");
   let message = unsafe { from_buf_raw(tbs, tbslen) };
   let key_id = unsafe { get_key_id(ctx) };
   let alg = unsafe { get_alg(ctx) };
@@ -209,7 +214,7 @@ extern fn kms_sign(ctx: EVP_PKEY_CTX, sig: *mut c_uchar, siglen: *mut usize, tbs
 }
 
 extern fn kms_verify(ctx: EVP_PKEY_CTX, sig: *const c_uchar, siglen: usize, tbs: *const c_uchar, tbslen: usize) -> c_int {
-  println!("verify!");
+  trace!("kms_verify");
   let message = unsafe { from_buf_raw(tbs, tbslen) };
   let signature = unsafe { from_buf_raw(sig, siglen) };
   let key_id = unsafe { get_key_id(ctx) };
@@ -229,7 +234,7 @@ extern fn kms_verify(ctx: EVP_PKEY_CTX, sig: *const c_uchar, siglen: usize, tbs:
 }
 
 extern fn kms_encrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, in_: *const c_uchar, inlen: c_int) -> c_int {
-  println!("encrypt!");
+  trace!("kms_encrypt");
   let plaintext = unsafe { from_buf_raw(in_, inlen as usize) };
   let key_id = unsafe { get_key_id(ctx) };
   let alg = unsafe { get_alg(ctx) };
@@ -251,7 +256,7 @@ extern fn kms_encrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, 
 }
 
 extern fn kms_decrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, in_: *const c_uchar, inlen: c_int) -> c_int {
-  println!("decrypt!");
+  trace!("kms_decrypt");
   let ciphertext = unsafe { from_buf_raw(in_, inlen as usize) };
   let key_id = unsafe { get_key_id(ctx) };
   let alg = unsafe { get_alg(ctx) };
