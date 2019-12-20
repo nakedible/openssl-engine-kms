@@ -26,14 +26,18 @@ iw/FnLvAGmXh9yCU+kjmKTI8YhNZuppNhUjMVq1kKm9cibyoZZt3FQ8VqA==
 **Sign**:
 
 ```console
-$ openssl pkeyutl -engine kms -sign -keyform engine -inkey arn:aws:kms:eu-west-1:111122223333:key/deadbeef-dead-dead-dead-deaddeafbeef -in digest.bin -out sig.bin -pkeyopt digest:sha256
+$ openssl pkeyutl -engine kms -sign -keyform engine \
+    -inkey arn:aws:kms:eu-west-1:111122223333:key/deadbeef-dead-dead-dead-deaddeafbeef \
+    -in digest.bin -out sig.bin -pkeyopt digest:sha256
 engine "kms" set.
 ```
 
 **Verify**:
 
 ```console
-$ openssl pkeyutl -engine kms -verify -keyform engine -inkey arn:aws:kms:eu-west-1:111122223333:key/deadbeef-dead-dead-dead-deaddeafbeef -in digest.bin -sigfile sig.bin -pkeyopt digest:sha256
+$ openssl pkeyutl -engine kms -verify -keyform engine \
+    -inkey arn:aws:kms:eu-west-1:111122223333:key/deadbeef-dead-dead-dead-deaddeafbeef \
+    -in digest.bin -sigfile sig.bin -pkeyopt digest:sha256
 engine "kms" set.
 Signature Verified Successfully
 ```
@@ -41,14 +45,18 @@ Signature Verified Successfully
 **Encrypt**:
 
 ```console
-$ openssl pkeyutl -engine kms -encrypt -keyform engine -inkey arn:aws:kms:eu-west-1:111122223333:key/deadbeef-dead-dead-dead-deaddeafbeef -in plain.bin -out encrypted.bin -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:SHA1
+$ openssl pkeyutl -engine kms -encrypt -keyform engine \
+    -inkey arn:aws:kms:eu-west-1:111122223333:key/deadbeef-dead-dead-dead-deaddeafbeef \
+    -in plain.bin -out encrypted.bin -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:SHA1
 engine "kms" set.
 ```
 
 **Decrypt**:
 
 ```console
-$ openssl pkeyutl -engine kms -decrypt -keyform engine -inkey arn:aws:kms:eu-west-1:111122223333:key/deadbeef-dead-dead-dead-deaddeafbeef -in encrypted.bin -out decrypted.bin -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:SHA1
+$ openssl pkeyutl -engine kms -decrypt -keyform engine \
+    -inkey arn:aws:kms:eu-west-1:111122223333:key/deadbeef-dead-dead-dead-deaddeafbeef \
+    -in encrypted.bin -out decrypted.bin -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:SHA1
 engine "kms" set.
 ```
 
