@@ -241,10 +241,12 @@ extern fn kms_verify(ctx: EVP_PKEY_CTX, sig: *const c_uchar, siglen: usize, tbs:
   };
   let output = KMS_CLIENT.verify(req).sync();
   if output.is_err() {
-    error!("verify err for key id {}: {}", key_id, output.unwrap_err());
+    match output.unwrap_err() {
+      rusoto_core::RusotoError::Unknown(x) if x.body_as_str().contains("KMSInvalidSignatureException") => trace!("invalid signature for key id {}", key_id),
+      x => error!("verify err for key id {}: {:?}", key_id, x)
+    }
     return 0;
   }
-  // FIXME: invalid signatures reported as KMSInvalidSignatureException
   assert_eq!(output.unwrap().signature_valid.unwrap(), true);
   return 1;
 }
