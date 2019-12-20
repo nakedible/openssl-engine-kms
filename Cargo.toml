@@ -6,11 +6,14 @@ edition = "2018"
 
 [dependencies]
 libc = "*"
+lazy_static = "*"
+bytes = "*"
+log = "*"
+env_logger = "*"
 # rustls used because it is difficult to properly use openssl inside openssl engine
 rusoto_core = { path = "../../public/rusoto/rusoto/core", default_features = false, features=["rustls"] }
 rusoto_kms = { path = "../../public/rusoto/rusoto/services/kms", default_features = false, features=["rustls"] }
-lazy_static = "*"
-bytes = "*"
+
 
 [lib]
 name = "openssl_engine_kms"
