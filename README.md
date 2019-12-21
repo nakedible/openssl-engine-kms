@@ -14,7 +14,7 @@ Basic usage from OpenSSL command line:
 
 **Load key**:
 
-```console
+```
 $ openssl pkey -engine kms -inform engine \
     -in arn:aws:kms:eu-west-1:111122223333:key/deadbeef-dead-dead-dead-deaddeafbeef \
     -pubout -text
@@ -36,7 +36,7 @@ NIST CURVE: P-256
 
 **Sign**:
 
-```console
+```
 $ openssl pkeyutl -engine kms -sign -keyform engine \
     -inkey arn:aws:kms:eu-west-1:111122223333:key/deadbeef-dead-dead-dead-deaddeafbeef \
     -in digest.bin -out sig.bin -pkeyopt digest:sha256
@@ -45,7 +45,7 @@ engine "kms" set.
 
 **Verify**:
 
-```console
+```
 $ openssl pkeyutl -engine kms -verify -keyform engine \
     -inkey arn:aws:kms:eu-west-1:111122223333:key/deadbeef-dead-dead-dead-deaddeafbeef \
     -in digest.bin -sigfile sig.bin -pkeyopt digest:sha256
@@ -55,7 +55,7 @@ Signature Verified Successfully
 
 **Encrypt**:
 
-```console
+```
 $ openssl pkeyutl -engine kms -encrypt -keyform engine \
     -inkey arn:aws:kms:eu-west-1:111122223333:key/deadbeef-dead-dead-dead-deaddeafbeef \
     -in plain.bin -out encrypted.bin -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:SHA1
@@ -64,7 +64,7 @@ engine "kms" set.
 
 **Decrypt**:
 
-```console
+```
 $ openssl pkeyutl -engine kms -decrypt -keyform engine \
     -inkey arn:aws:kms:eu-west-1:111122223333:key/deadbeef-dead-dead-dead-deaddeafbeef \
     -in encrypted.bin -out decrypted.bin -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:SHA1
@@ -73,7 +73,7 @@ engine "kms" set.
 
 **Generate random**:
 
-```console
+```
 $ OPENSSL_ENGINE_KMS_USE_RAND=true openssl rand -engine kms -out rand.bin 128
 engine "kms" set.
 ```
