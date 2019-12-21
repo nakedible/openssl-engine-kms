@@ -376,12 +376,12 @@ pub extern fn bind_engine(e: ENGINE, _id: *const c_char, fns: *const dynamic_fns
     openssl_try!(ENGINE_set_id(e, ENGINE_ID.as_ptr()));
     openssl_try!(ENGINE_set_name(e, ENGINE_NAME.as_ptr()));
     openssl_try!(ENGINE_set_init_function(e, kms_init));
-    if !std::env::var("OPENSSL_ENGINE_KMS_USE_RAND").unwrap_or("".to_string()).is_empty() {
-      openssl_try!(ENGINE_set_RAND(e, &RAND_METH));
-    }
     openssl_try!(ENGINE_set_pkey_meths(e, pkey_meths));
     openssl_try!(ENGINE_set_load_privkey_function(e, load_key));
     openssl_try!(ENGINE_set_load_pubkey_function(e, load_key));
+    if !std::env::var("OPENSSL_ENGINE_KMS_USE_RAND").unwrap_or("".to_string()).is_empty() {
+      openssl_try!(ENGINE_set_RAND(e, &RAND_METH));
+    }
   }
   return 1;
 }
