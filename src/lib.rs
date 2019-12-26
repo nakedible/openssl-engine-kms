@@ -3,7 +3,6 @@ extern crate libc;
 use std::ptr;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::mem::MaybeUninit;
 use libc::{c_void, c_char, c_uchar, c_int, c_ulong, c_double};
 use rusoto_core::Region;
 use rusoto_kms::{Kms, KmsClient};
@@ -118,10 +117,6 @@ extern {
   fn EVP_PKEY_meth_set_decrypt(pmeth: EVP_PKEY_METHOD, decrypt_init: pkey_init_fn, decrypt: pkey_decrypt_fn);
   fn EVP_PKEY_meth_set_sign(pmeth: EVP_PKEY_METHOD, sign_init: pkey_init_fn, sign: pkey_sign_fn);
   fn EVP_PKEY_meth_set_verify(pmeth: EVP_PKEY_METHOD, verify_init: pkey_init_fn, verify: pkey_verify_fn);
-  fn EVP_PKEY_meth_get_encrypt(pmeth: EVP_PKEY_METHOD, encrypt_init: *mut pkey_init_fn, encrypt: *mut pkey_encrypt_fn);
-  fn EVP_PKEY_meth_get_decrypt(pmeth: EVP_PKEY_METHOD, decrypt_init: *mut pkey_init_fn, decrypt: *mut pkey_decrypt_fn);
-  fn EVP_PKEY_meth_get_sign(pmeth: EVP_PKEY_METHOD, sign_init: *mut pkey_init_fn, sign: *mut pkey_sign_fn);
-  fn EVP_PKEY_meth_get_verify(pmeth: EVP_PKEY_METHOD, verify_init: *mut pkey_init_fn, verify: *mut pkey_verify_fn);
   fn EVP_PKEY_CTX_get0_pkey(ctx: EVP_PKEY_CTX) -> EVP_PKEY;
   fn EVP_PKEY_CTX_ctrl(ctx: EVP_PKEY_CTX, keytype: c_int, optype: c_int, cmd: c_int, p1: c_int, p2: *mut c_void) -> c_int;
   fn EVP_MD_type(md: EVP_MD) -> c_int;
@@ -133,7 +128,6 @@ extern {
 // Static globals
 const ENGINE_ID : &str = "kms\0";
 const ENGINE_NAME : &str = "AWS KMS based engine\0";
-const SUPPORTED_EVP_NIDS : [c_int; 2] = [EVP_PKEY_RSA, EVP_PKEY_EC];
 
 static RAND_METH : rand_meth_st = rand_meth_st {
   seed: None,
@@ -144,45 +138,12 @@ static RAND_METH : rand_meth_st = rand_meth_st {
   status: Some(rand_status)
 };
 
-struct pkey_fns {
-  init: pkey_init_fn,
-  encrypt: pkey_encrypt_fn,
-  decrypt: pkey_decrypt_fn,
-  sign: pkey_sign_fn,
-  verify: pkey_verify_fn
-}
-
 lazy_static! {
   static ref KMS_CLIENT : KmsClient = KmsClient::new(Region::EuWest1);
   static ref KEYS : Mutex<HashMap<usize, String>> = Mutex::new(HashMap::new());
-  static ref ORIG_PKEY_FNS : [pkey_fns; 2] = [get_pkey_fns(EVP_PKEY_RSA), get_pkey_fns(EVP_PKEY_EC)];
 }
-
-static mut CUR_ENGINE : Option<ENGINE> = None;
 
 // implementation functions
-fn get_pkey_fns(nid : c_int) -> pkey_fns {
-  unsafe {
-    let mut init = MaybeUninit::<pkey_init_fn>::zeroed();
-    let mut encrypt = MaybeUninit::<pkey_encrypt_fn>::zeroed();
-    let mut decrypt = MaybeUninit::<pkey_decrypt_fn>::zeroed();
-    let mut sign = MaybeUninit::<pkey_sign_fn>::zeroed();
-    let mut verify = MaybeUninit::<pkey_verify_fn>::zeroed();
-    let orig_meth = EVP_PKEY_meth_find(nid);
-    EVP_PKEY_meth_get_encrypt(orig_meth, init.as_mut_ptr(), encrypt.as_mut_ptr());
-    EVP_PKEY_meth_get_decrypt(orig_meth, init.as_mut_ptr(), decrypt.as_mut_ptr());
-    EVP_PKEY_meth_get_sign(orig_meth, init.as_mut_ptr(), sign.as_mut_ptr());
-    EVP_PKEY_meth_get_verify(orig_meth, init.as_mut_ptr(), verify.as_mut_ptr());
-    return pkey_fns {
-      init: init.assume_init(),
-      encrypt: encrypt.assume_init(),
-      decrypt: decrypt.assume_init(),
-      sign: sign.assume_init(),
-      verify: verify.assume_init()
-    };
-  }
-}
-
 unsafe fn get_alg(ctx: EVP_PKEY_CTX) -> Result<&'static str, String> {
   let mut padding : c_int = 0;
   let mut md : EVP_MD = ptr::null_mut();
@@ -209,7 +170,7 @@ unsafe fn get_alg(ctx: EVP_PKEY_CTX) -> Result<&'static str, String> {
 
 unsafe fn get_key_id(ctx: EVP_PKEY_CTX) -> String {
   let pkey = EVP_PKEY_CTX_get0_pkey(ctx);
-  KEYS.lock().unwrap().get(&(pkey as usize)).unwrap_or(&"".to_string()).to_string()
+  KEYS.lock().unwrap().get(&(pkey as usize)).expect("key id missing").to_string()
 }
 
 extern fn kms_init(_e: ENGINE) -> c_int {
@@ -275,23 +236,9 @@ extern fn kms_sign(ctx: EVP_PKEY_CTX, sig: *mut c_uchar, siglen: *mut usize, tbs
 
 extern fn kms_verify(ctx: EVP_PKEY_CTX, sig: *const c_uchar, siglen: usize, tbs: *const c_uchar, tbslen: usize) -> c_int {
   trace!("kms_verify");
-  // unsafe {
-  //   let nid = EVP_PKEY_base_id(EVP_PKEY_CTX_get0_pkey(ctx));
-  //   let orig_meth = openssl_try!(EVP_PKEY_meth_find(nid), ptr::null_mut());
-  //   let mut verify_init = kms_common_init as pkey_init_fn;
-  //   let mut verify = kms_verify as extern fn(EVP_PKEY_CTX, *const c_uchar, usize, *const c_uchar, usize) -> c_int;
-  //   EVP_PKEY_meth_get_verify(orig_meth, &mut verify_init as *mut pkey_init_fn, &mut verify as *mut extern fn(EVP_PKEY_CTX, *const c_uchar, usize, *const c_uchar, usize) -> c_int);
-  //   println!("vget {} {:x} {:x}", nid, verify_init as usize, verify as usize);
-  //   println!("vset {} {:x} {:x}", nid, kms_common_init as *const () as usize, kms_verify as *const () as usize);
-  //   return verify(ctx, sig, siglen, tbs, tbslen);
-  // }
   let message = unsafe { from_buf_raw(tbs, tbslen) };
   let signature = unsafe { from_buf_raw(sig, siglen) };
   let key_id = unsafe { get_key_id(ctx) };
-  if key_id == "" {
-    let nid = unsafe { EVP_PKEY_base_id(EVP_PKEY_CTX_get0_pkey(ctx)) };
-    return (ORIG_PKEY_FNS[SUPPORTED_EVP_NIDS.iter().position(|&x| x == nid).unwrap()].verify)(ctx, sig, siglen, tbs, tbslen);
-  }
   let alg = unsafe { get_alg(ctx) };
   if alg.is_err() {
     error!("could not determine algorithm: {}", alg.unwrap_err());
@@ -375,20 +322,13 @@ extern fn kms_decrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usize, 
   return 1;
 }
 
-extern fn pkey_meths(_e: ENGINE, pmeth: *mut EVP_PKEY_METHOD, nids: *mut *const c_int, nid: c_int) -> c_int {
+extern fn pkey_meths(_e: ENGINE, pmeth: *mut EVP_PKEY_METHOD, _nids: *mut *const c_int, nid: c_int) -> c_int {
   if pmeth == ptr::null_mut() {
-    unsafe { *nids = SUPPORTED_EVP_NIDS.as_ptr(); }
     return 0;
-    // return SUPPORTED_EVP_NIDS.len() as c_int;
-  } else if nid == EVP_PKEY_RSA || nid == EVP_PKEY_EC {
+  } else {
     unsafe {
       let pkey_meth = openssl_try!(EVP_PKEY_meth_new(nid, EVP_PKEY_FLAG_AUTOARGLEN), ptr::null_mut());
       let orig_meth = openssl_try!(EVP_PKEY_meth_find(nid), ptr::null_mut());
-      // let mut verify_init : usize = 0;
-      // let mut verify : usize = 0;
-      // EVP_PKEY_meth_get_verify(orig_meth, &mut verify_init as *mut usize, &mut verify as *mut usize);
-      // println!("get {} {:x} {:x}", nid, verify_init, verify);
-      // println!("set {} {:x} {:x}", nid, kms_common_init as *const () as usize, kms_verify as *const () as usize);
       EVP_PKEY_meth_copy(pkey_meth, orig_meth);
       EVP_PKEY_meth_set_sign(pkey_meth, kms_common_init, kms_sign);
       EVP_PKEY_meth_set_verify(pkey_meth, kms_common_init, kms_verify);
@@ -397,12 +337,10 @@ extern fn pkey_meths(_e: ENGINE, pmeth: *mut EVP_PKEY_METHOD, nids: *mut *const 
       *pmeth = pkey_meth;
     }
     return 1;
-  } else {
-    return 0;
   }
 }
 
-extern fn load_key(_e: ENGINE, key_id: *const c_char, _ui_method: *mut c_void, _callback_data: *mut c_void) -> EVP_PKEY {
+extern fn load_key(e: ENGINE, key_id: *const c_char, _ui_method: *mut c_void, _callback_data: *mut c_void) -> EVP_PKEY {
   let key_id = unsafe { std::ffi::CStr::from_ptr(key_id).to_str().unwrap() };
   trace!("load_key for key id {}", key_id);
   let req = rusoto_kms::GetPublicKeyRequest {
@@ -421,7 +359,7 @@ extern fn load_key(_e: ENGINE, key_id: *const c_char, _ui_method: *mut c_void, _
     openssl_try!(BIO_free(key_bio), 0, ptr::null_mut());
     if pubkey == ptr::null_mut() { return ptr::null_mut(); }
     KEYS.lock().unwrap().insert(pubkey as usize, key_id.to_string());
-    openssl_try!(EVP_PKEY_set1_engine(pubkey, CUR_ENGINE.unwrap()), 0, ptr::null_mut());
+    openssl_try!(EVP_PKEY_set1_engine(pubkey, e), 0, ptr::null_mut());
     return pubkey;
   }
 }
@@ -447,7 +385,6 @@ pub extern fn bind_engine(e: ENGINE, _id: *const c_char, fns: *const dynamic_fns
     if !std::env::var("OPENSSL_ENGINE_KMS_USE_RAND").unwrap_or("".to_string()).is_empty() {
       openssl_try!(ENGINE_set_RAND(e, &RAND_METH));
     }
-    CUR_ENGINE = Some(e);
   }
   return 1;
 }
