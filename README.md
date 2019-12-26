@@ -8,6 +8,19 @@ decryption, and optionally for random generation.
 
 ## Installation
 
+Build library by running:
+
+```
+$ cargo build --release
+```
+
+Building requires minimum Rust version 1.37.0.
+
+Either specify `$(PWD)/target/release/libopenssl_engine_kms.so`
+directly as the engine name, or copy it under `OPENSSL_ENGINES`
+directory (such as `/usr/lib/x86_64-linux-gnu/engines-1.1/`) as
+`kms.so` and use `kms` as engine name.
+
 ## Usage
 
 Basic usage from OpenSSL command line:
