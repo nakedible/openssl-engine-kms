@@ -34,6 +34,13 @@ ASN1 OID: prime256v1
 NIST CURVE: P-256
 ```
 
+Notes:
+- Reading either a private key or a public key (by using `-pubin`)
+  will produce the same result: a public key fetched from KMS, as no
+  private key part is ever exportable.
+- Both EC and RSA keys are supported, in all bit lengths supported by
+  KMS.
+
 **Sign**:
 
 ```
@@ -42,6 +49,14 @@ $ openssl pkeyutl -engine kms -sign -keyform engine \
     -in digest.bin -out sig.bin -pkeyopt digest:sha256
 engine "kms" set.
 ```
+
+Notes:
+- For RSA keys both PKCS#1 and PSS padding are supported with digests
+  SHA-256, SHA-384 and SHA-512. Use `-pkeyopt rsa_padding_mode:pss` if
+  you wish to use PSS.
+- For EC keys ECDSA is supported with digest SHA-256, SHA-384 and
+  SHA-512.
+- Digest SHA-1 is not supported by KMS for security reasons. 
 
 **Verify**:
 
@@ -53,14 +68,12 @@ engine "kms" set.
 Signature Verified Successfully
 ```
 
-**Encrypt**:
-
-```
-$ openssl pkeyutl -engine kms -encrypt -keyform engine \
-    -inkey arn:aws:kms:eu-west-1:111122223333:key/deadbeef-dead-dead-dead-deaddeafbeef \
-    -in plain.bin -out encrypted.bin -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:SHA1
-engine "kms" set.
-```
+Notes:
+- By default, only key is loaded from KMS and verification is
+  performed locally for performance and convenience.
+- Set environment variable `OPENSSL_ENGINE_KMS_USE_PUBKEY` to a
+  non-empty string to enable the use for KMS for the actual verify
+  operation.
 
 **Decrypt**:
 
@@ -71,12 +84,37 @@ $ openssl pkeyutl -engine kms -decrypt -keyform engine \
 engine "kms" set.
 ```
 
+Notes:
+- Only OAEP is supported with either digest SHA-1 or SHA-256. Use
+  `-pkeyopt rsa_padding_mode:oaep` to enable OAEP and
+  `-pkey_oaep_md:SHA256` to set the digest.
+
+**Encrypt**:
+
+```
+$ openssl pkeyutl -engine kms -encrypt -keyform engine \
+    -inkey arn:aws:kms:eu-west-1:111122223333:key/deadbeef-dead-dead-dead-deaddeafbeef \
+    -in plain.bin -out encrypted.bin -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:SHA1
+engine "kms" set.
+```
+
+Notes:
+- By default, only key is loaded from KMS and encryption is
+  performed locally for performance and convenience.
+- Set environment variable `OPENSSL_ENGINE_KMS_USE_PUBKEY` to a
+  non-empty string to enable the use for KMS for the actual encrypt
+  operation.
+
 **Generate random**:
 
 ```
 $ OPENSSL_ENGINE_KMS_USE_RAND=true openssl rand -engine kms -out rand.bin 128
 engine "kms" set.
 ```
+
+- Random generation by KMS is disabled by default.
+- Set environment variable `OPENSSL_ENGINE_KMS_USE_RAND` to a
+  non-empty string to enable the use of KMS for random generation.
 
 ## License
 
