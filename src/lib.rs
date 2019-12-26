@@ -170,7 +170,7 @@ unsafe fn get_alg(ctx: EVP_PKEY_CTX) -> Result<&'static str, String> {
 
 unsafe fn get_key_id(ctx: EVP_PKEY_CTX) -> String {
   let pkey = EVP_PKEY_CTX_get0_pkey(ctx);
-  KEYS.lock().unwrap().get(&(pkey as usize)).expect("key id missing").to_string()
+  KEYS.lock().unwrap().get(&(pkey as usize)).expect("could not find key id for pkey").to_string()
 }
 
 extern fn kms_init(_e: ENGINE) -> c_int {
