@@ -2,9 +2,27 @@
 
 OpenSSL engine implementation that provides support for utilizing AWS
 KMS asymmetric keys for signing, verification, encryption and
-decryption, and optionally for random generation.
+decryption, and optionally for utilizing KMS for random generation.
 
-## Description
+This is useful because it allows the private key parts to not reside
+on the computer that is running the program using KMS - indeed, KMS
+does not allow the private key to be exported at all. This means that
+even in the face of full server compromise, the private key cannot be
+stolen, and access to the key can very easily be revoked. AWS KMS also
+provides a clear audit log in the form of CloudTrail, which will
+record each operation that uses a key, making it very easy to verify
+all the users of the key.
+
+Some possible uses for this engine:
+
+- HTTPS server without exposing private key
+- Use TLS client certificate authentication without exposing private key
+- Create Certificate Signing Requests (CSRs) for a key to be submitted for signing by a CA
+- Create self-signed certificate for a key
+- Operate a CA without exposing the CA private key
+- Sign messages using S/MIME without exposing private key
+- Decrypt messages using S/MIME without exposing private key
+- Operate a Time Stamping Authority (TSA) without exposting private key
 
 ## Installation
 
@@ -22,6 +40,29 @@ directory (such as `/usr/lib/x86_64-linux-gnu/engines-1.1/`) as
 `kms.so` and use `kms` as engine name.
 
 ## Usage
+
+Environment variables:
+
+- `OPENSSL_ENGINE_KMS_USE_RAND`: If set to non-empty string, enables
+  the use of KMS for all random generation inside OpenSSL. This is
+  usually not necessary unless the installation does not have a good
+  random source, or if certified high quality randomness is required,
+  or if an audit log should be generated from all random generation
+  operations.
+- `OPENSSL_ENGINE_KMS_USE_PUBKEY`: If set to non-empty string, enables
+  the use of KMS (instead of OpenSSL) also for verify and encrypt
+  operations. This is usually not necessary as these operations only
+  use the public key, but may be desired for audit purposes, or
+  ensuring the verification happens inside a FIPS boundary.
+- `OPENSSL_ENGINE_KMS_LOG`: If there is a need to obtain more verbose
+  logs from the engine, this environment variable may be set to a log
+  level. The format is described by
+  [env_logger](https://docs.rs/env_logger/0.7.1/env_logger/) Rust
+  crate. For example, to enable trace level logging for the engine
+  itself, specify `openssl_engine_kms=trace`, or to enable trace
+  logging for all packages, specify `trace`.
+
+## Usage from command-line
 
 Basic usage from OpenSSL command line:
 
