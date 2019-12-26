@@ -11,8 +11,8 @@ bytes = "*"
 log = "*"
 env_logger = "*"
 # rustls used because it is difficult to properly use openssl inside openssl engine
-rusoto_core = { path = "../../public/rusoto/rusoto/core", default_features = false, features=["rustls"] }
-rusoto_kms = { path = "../../public/rusoto/rusoto/services/kms", default_features = false, features=["rustls"] }
+rusoto_core = { git = "https://github.com/rusoto/rusoto", default_features = false, features=["rustls"] }
+rusoto_kms = { git = "https://github.com/rusoto/rusoto", default_features = false, features=["rustls"] }
 
 
 [lib]
