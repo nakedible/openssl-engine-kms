@@ -331,9 +331,11 @@ extern fn pkey_meths(_e: ENGINE, pmeth: *mut EVP_PKEY_METHOD, _nids: *mut *const
       let orig_meth = openssl_try!(EVP_PKEY_meth_find(nid), ptr::null_mut());
       EVP_PKEY_meth_copy(pkey_meth, orig_meth);
       EVP_PKEY_meth_set_sign(pkey_meth, kms_common_init, kms_sign);
-      EVP_PKEY_meth_set_verify(pkey_meth, kms_common_init, kms_verify);
-      EVP_PKEY_meth_set_encrypt(pkey_meth, kms_common_init, kms_encrypt);
       EVP_PKEY_meth_set_decrypt(pkey_meth, kms_common_init, kms_decrypt);
+      if !std::env::var("OPENSSL_ENGINE_KMS_USE_PUBKEY").unwrap_or("".to_string()).is_empty() {
+        EVP_PKEY_meth_set_verify(pkey_meth, kms_common_init, kms_verify);
+        EVP_PKEY_meth_set_encrypt(pkey_meth, kms_common_init, kms_encrypt);
+      }
       *pmeth = pkey_meth;
     }
     return 1;
