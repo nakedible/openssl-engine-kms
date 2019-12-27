@@ -167,7 +167,7 @@ unsafe fn get_alg(ctx: EVP_PKEY_CTX) -> Result<&'static str, String> {
         EVP_PKEY_CTRL_GET_MD
     };
     EVP_PKEY_CTX_ctrl(ctx, -1, -1, md_cmd, 0, &mut md as *mut _ as *mut c_void);
-    if md == ptr::null_mut() {
+    if md.is_null() {
         return Err("could not get md from pkey".to_string());
     }
     let md_type = EVP_MD_type(md);
@@ -209,8 +209,8 @@ extern "C" fn rand_bytes(buf: *mut c_uchar, num: c_int) -> c_int {
         number_of_bytes: Some(num.into()),
     };
     let output = KMS_CLIENT.generate_random(req).sync();
-    if output.is_err() {
-        error!("generate {} random bytes failed: {}", num, output.unwrap_err());
+    if let Err(e) = output {
+        error!("generate {} random bytes failed: {}", num, e);
         return 0;
     }
     let bytes = output.unwrap().plaintext.expect("plaintext was not returned");
