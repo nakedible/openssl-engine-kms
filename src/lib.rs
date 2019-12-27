@@ -149,7 +149,8 @@ unsafe fn get_alg(ctx: EVP_PKEY_CTX) -> Result<&'static str, String> {
   let mut md : EVP_MD = ptr::null_mut();
   let key_type = EVP_PKEY_base_id(EVP_PKEY_CTX_get0_pkey(ctx));
   if key_type == EVP_PKEY_RSA { EVP_PKEY_CTX_ctrl(ctx, -1, -1, EVP_PKEY_CTRL_GET_RSA_PADDING, 0, &mut padding as *mut _ as *mut c_void); }
-  EVP_PKEY_CTX_ctrl(ctx, -1, -1, if padding == RSA_PKCS1_OAEP_PADDING { EVP_PKEY_CTRL_GET_RSA_OAEP_MD } else { EVP_PKEY_CTRL_GET_MD }, 0, &mut md as *mut _ as *mut c_void);
+  let md_cmd = if padding == RSA_PKCS1_OAEP_PADDING { EVP_PKEY_CTRL_GET_RSA_OAEP_MD } else { EVP_PKEY_CTRL_GET_MD };
+  EVP_PKEY_CTX_ctrl(ctx, -1, -1, md_cmd, 0, &mut md as *mut _ as *mut c_void);
   if md == ptr::null_mut() { return Err("could not get md from pkey".to_string()); }
   let md_type = EVP_MD_type(md);
   match (key_type, padding, md_type) {
