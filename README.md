@@ -41,6 +41,30 @@ directory (such as `/usr/lib/x86_64-linux-gnu/engines-1.1/`) as
 
 ## Usage
 
+There are two things that need to happen for this engine to be useful
+in OpenSSL: the engine needs to be loaded, and the private key (or
+public key) must be loaded from the engine.
+
+Loading of the engine happens either by directly loading it by calling
+`ENGINE_by_id("kms")`, or by loading it from a dynamic library by
+calling `ENGINE_by_id("dynamic")` and then by using
+`ENGINE_ctrl_cmd_string` to send both `SO_PATH` and `LOAD` commands to
+the engine. On the `openssl` command line both of these methods are
+automatically used by specifying either `-engine kms` or `-engine
+path/to/kms.so`.
+
+Loading the private or public key from the engine happens by calling
+`ENGINE_load_private_key` or `ENGINE_load_public_key` on the engine.
+The resulting loaded key is equivalent regardless of which method is
+used as KMS never exposes the private key directly. The `key_id`
+argument is passed directly as key id to the KMS API, which currently
+supports Key ID, Key ARN, Alias Name or Alias ARN as possible values.
+
+Software that supports OpenSSL engines such as PKCS#11 or TPM usually
+already has functionality to do these operations. For example Node.js
+(13.x or later) exposes these via the `privateKeyEngine` and
+`privateKeyIdentifier` options on TLS contexts.
+
 Environment variables:
 
 - `OPENSSL_ENGINE_KMS_USE_RAND`: If set to non-empty string, enables
@@ -169,6 +193,21 @@ engine "kms" set.
 - Random generation by KMS is disabled by default.
 - Set environment variable `OPENSSL_ENGINE_KMS_USE_RAND` to a
   non-empty string to enable the use of KMS for random generation.
+
+**Generate self-signed certificate**:
+
+```
+$ openssl req -new -x509 -days 365 -subj '/CN=my key/' -sha256 -engine kms -keyform engine \
+    -key arn:aws:kms:eu-west-1:111122223333:key/deadbeef-dead-dead-dead-deaddeafbeef \
+    -out cert.pem
+```
+
+**Run TLS server**:
+
+```
+$ openssl s_server -engine kms -keyform engine -cert cert.pem \
+    -key arn:aws:kms:eu-west-1:378072147349:key/82a458d8-b594-4702-b55e-4f00588ed070
+```
 
 ## License
 
