@@ -233,8 +233,8 @@ extern "C" fn kms_sign(ctx: EVP_PKEY_CTX, sig: *mut c_uchar, siglen: *mut usize,
     let message = unsafe { from_buf_raw(tbs, tbslen) };
     let key_id = unsafe { get_key_id(ctx) };
     let alg = unsafe { get_alg(ctx) };
-    if alg.is_err() {
-        error!("could not determine algorithm: {}", alg.unwrap_err());
+    if let Err(e) = alg {
+        error!("could not determine algorithm: {}", e);
         return 0;
     }
     let req = rusoto_kms::SignRequest {
@@ -245,8 +245,8 @@ extern "C" fn kms_sign(ctx: EVP_PKEY_CTX, sig: *mut c_uchar, siglen: *mut usize,
         grant_tokens: None,
     };
     let output = KMS_CLIENT.sign(req).sync();
-    if output.is_err() {
-        error!("sign err for key id {}: {}", key_id, output.unwrap_err());
+    if let Err(e) = output {
+        error!("sign err for key id {}: {}", key_id, e);
         return 0;
     }
     let bytes = output.unwrap().signature.expect("signature was not returned");
@@ -263,8 +263,8 @@ extern "C" fn kms_verify(ctx: EVP_PKEY_CTX, sig: *const c_uchar, siglen: usize, 
     let signature = unsafe { from_buf_raw(sig, siglen) };
     let key_id = unsafe { get_key_id(ctx) };
     let alg = unsafe { get_alg(ctx) };
-    if alg.is_err() {
-        error!("could not determine algorithm: {}", alg.unwrap_err());
+    if let Err(e) = alg {
+        error!("could not determine algorithm: {}", e);
         return 0;
     }
     let req = rusoto_kms::VerifyRequest {
@@ -276,8 +276,8 @@ extern "C" fn kms_verify(ctx: EVP_PKEY_CTX, sig: *const c_uchar, siglen: usize, 
         grant_tokens: None,
     };
     let output = KMS_CLIENT.verify(req).sync();
-    if output.is_err() {
-        match output.unwrap_err() {
+    if let Err(e) = output {
+        match e {
             rusoto_core::RusotoError::Unknown(x) if x.body_as_str().contains("KMSInvalidSignatureException") => {
                 trace!("invalid signature for key id {}", key_id)
             }
@@ -294,8 +294,8 @@ extern "C" fn kms_encrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usi
     let plaintext = unsafe { from_buf_raw(in_, inlen as usize) };
     let key_id = unsafe { get_key_id(ctx) };
     let alg = unsafe { get_alg(ctx) };
-    if alg.is_err() {
-        error!("could not determine algorithm: {}", alg.unwrap_err());
+    if let Err(e) = alg {
+        error!("could not determine algorithm: {}", e);
         return 0;
     }
     let req = rusoto_kms::EncryptRequest {
@@ -306,8 +306,8 @@ extern "C" fn kms_encrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usi
         grant_tokens: None,
     };
     let output = KMS_CLIENT.encrypt(req).sync();
-    if output.is_err() {
-        error!("encrypt err for key id {}: {}", key_id, output.unwrap_err());
+    if let Err(e) = output {
+        error!("encrypt err for key id {}: {}", key_id, e);
         return 0;
     }
     let bytes = output.unwrap().ciphertext_blob.expect("ciphertext was not returned");
@@ -323,8 +323,8 @@ extern "C" fn kms_decrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usi
     let ciphertext = unsafe { from_buf_raw(in_, inlen as usize) };
     let key_id = unsafe { get_key_id(ctx) };
     let alg = unsafe { get_alg(ctx) };
-    if alg.is_err() {
-        error!("could not determine algorithm: {}", alg.unwrap_err());
+    if let Err(e) = alg {
+        error!("could not determine algorithm: {}", e);
         return 0;
     }
     let req = rusoto_kms::DecryptRequest {
@@ -335,8 +335,8 @@ extern "C" fn kms_decrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usi
         grant_tokens: None,
     };
     let output = KMS_CLIENT.decrypt(req).sync();
-    if output.is_err() {
-        error!("decrypt err for key id {}: {}", key_id, output.unwrap_err());
+    if let Err(e) = output {
+        error!("decrypt err for key id {}: {}", key_id, e);
         return 0;
     }
     let bytes = output.unwrap().plaintext.expect("plaintext was not returned");
@@ -348,7 +348,7 @@ extern "C" fn kms_decrypt(ctx: EVP_PKEY_CTX, out: *mut c_uchar, outlen: *mut usi
 }
 
 extern "C" fn pkey_meths(_e: ENGINE, pmeth: *mut EVP_PKEY_METHOD, _nids: *mut *const c_int, nid: c_int) -> c_int {
-    if pmeth == ptr::null_mut() {
+    if pmeth.is_null() {
         return 0;
     } else {
         unsafe {
@@ -375,8 +375,8 @@ extern "C" fn load_key(e: ENGINE, key_id: *const c_char, _ui_method: *mut c_void
         grant_tokens: None,
     };
     let output = KMS_CLIENT.get_public_key(req).sync();
-    if output.is_err() {
-        error!("load key err for key id {}: {}", key_id, output.unwrap_err());
+    if let Err(e) = output {
+        error!("load key err for key id {}: {}", key_id, e);
         return ptr::null_mut();
     }
     let bytes = output.unwrap().public_key.expect("public key not returned");
@@ -388,7 +388,7 @@ extern "C" fn load_key(e: ENGINE, key_id: *const c_char, _ui_method: *mut c_void
         );
         let pubkey = d2i_PUBKEY_bio(key_bio, std::ptr::null_mut());
         openssl_try!(BIO_free(key_bio), 0, ptr::null_mut());
-        if pubkey == ptr::null_mut() {
+        if pubkey.is_null() {
             return ptr::null_mut();
         }
         KEYS.lock().unwrap().insert(pubkey as usize, key_id.to_string());
