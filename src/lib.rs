@@ -149,7 +149,7 @@ static RAND_METH: rand_meth_st = rand_meth_st {
 };
 
 lazy_static! {
-    static ref KMS_CLIENT: KmsClient = KmsClient::new(Region::EuWest1);
+    static ref KMS_CLIENT: KmsClient = KmsClient::new(Region::default());
     static ref KEYS: Mutex<HashMap<usize, String>> = Mutex::new(HashMap::new());
 }
 
